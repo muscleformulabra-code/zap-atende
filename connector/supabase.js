@@ -1,11 +1,18 @@
 // Camada de acesso ao banco (Supabase) via API REST (PostgREST).
 // Usa fetch nativo do Node 20 — sem dependências pesadas.
-const SUPABASE_URL = process.env.SUPABASE_URL
-const KEY = process.env.SUPABASE_SERVICE_KEY
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim()
+// Sanitiza a chave: um JWT só tem [A-Za-z0-9._-]. Remove espaços, quebras de
+// linha e qualquer caractere não-ASCII (ex.: "•" colado por engano no painel do
+// Railway) que estouraria a validação de header (ByteString) do fetch.
+const KEY_RAW = process.env.SUPABASE_SERVICE_KEY || ''
+const KEY = KEY_RAW.replace(/[^A-Za-z0-9._-]/g, '')
 
 if (!SUPABASE_URL || !KEY) {
   console.error('\n❌ Faltam credenciais. Preencha SUPABASE_URL e SUPABASE_SERVICE_KEY no arquivo connector/.env\n')
   process.exit(1)
+}
+if (KEY_RAW !== KEY) {
+  console.warn(`⚠️  SUPABASE_SERVICE_KEY tinha caracteres inválidos e foi limpa (${KEY_RAW.length} -> ${KEY.length} chars).`)
 }
 
 const REST = `${SUPABASE_URL}/rest/v1`
