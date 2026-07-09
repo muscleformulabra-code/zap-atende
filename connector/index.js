@@ -19,6 +19,7 @@ const fs = require('fs')
 const pino = require('pino')
 
 const { upsertContact, insertMessage, keyInfo } = require('./supabase')
+const BAILEYS_VERSION = (() => { try { return require('@whiskeysockets/baileys/package.json').version } catch { return '?' } })()
 const { handleIncoming, getSettings, isWithinHours } = require('./bot')
 
 // Socket do WhatsApp (nível de módulo p/ o servidor HTTP do inbox usar).
@@ -204,7 +205,7 @@ http
     }
     if (req.method === 'GET' && req.url === '/debug') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      return res.end(JSON.stringify({ connected: !!sock, whatsapp: waConnected, keyInfo, ...diag }))
+      return res.end(JSON.stringify({ connected: !!sock, whatsapp: waConnected, baileys: BAILEYS_VERSION, keyInfo, ...diag }))
     }
     // Reset seguro: apaga a sessão do WhatsApp e reinicia (gera QR novo p/ re-parear).
     // /reset?confirm=yes
