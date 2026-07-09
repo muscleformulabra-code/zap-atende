@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { getContactJid, setHandoff } from '@/lib/db'
 
-const CONNECTOR_URL = process.env.CONNECTOR_URL || 'http://localhost:3333'
+// Endereço do conector (WhatsApp). Padrão = conector na nuvem (Railway); pode
+// sobrescrever com a env CONNECTOR_URL (ex.: http://localhost:3333 em dev local).
+const CONNECTOR_URL = process.env.CONNECTOR_URL || 'https://zap-atende-production.up.railway.app'
 
 // Envia uma mensagem pelo WhatsApp (via conector) a partir do inbox,
 // atribuindo ao atendente logado (para o ranking de atendentes).
