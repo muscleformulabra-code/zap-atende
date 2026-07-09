@@ -210,10 +210,18 @@ http
     if (req.method === 'GET' && req.url.startsWith('/testsend')) {
       const u = new URL(req.url, 'http://x')
       const num = (u.searchParams.get('num') || '').replace(/\D/g, '')
+      const rawJid = u.searchParams.get('jid') || '' // envia direto pra esse jid (ex.: ...@lid)
       const text = u.searchParams.get('text') || 'teste'
       ;(async () => {
         try {
           if (!sock) throw new Error('sock nulo')
+          // Modo 1: jid cru (ex.: @lid) — envia direto.
+          if (rawJid) {
+            const sent = await sock.sendMessage(rawJid, { text })
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            return res.end(JSON.stringify({ sentTo: rawJid, id: sent?.key?.id }))
+          }
+          // Modo 2: número — resolve via onWhatsApp e envia.
           const check = await sock.onWhatsApp(num).catch((e) => ({ err: e.message }))
           let sendResult = null
           if (Array.isArray(check) && check[0]?.exists) {
