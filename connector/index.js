@@ -18,7 +18,7 @@ const http = require('http')
 const fs = require('fs')
 const pino = require('pino')
 
-const { upsertContact, insertMessage } = require('./supabase')
+const { upsertContact, insertMessage, keyInfo } = require('./supabase')
 const { handleIncoming, getSettings, isWithinHours } = require('./bot')
 
 // Socket do WhatsApp (nível de módulo p/ o servidor HTTP do inbox usar).
@@ -192,7 +192,7 @@ http
     }
     if (req.method === 'GET' && req.url === '/debug') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      return res.end(JSON.stringify({ connected: !!sock, whatsapp: waConnected, ...diag }))
+      return res.end(JSON.stringify({ connected: !!sock, whatsapp: waConnected, keyInfo, ...diag }))
     }
     // QR pelo navegador (útil quando o conector está no servidor remoto).
     if (req.method === 'GET' && req.url === '/qr') {

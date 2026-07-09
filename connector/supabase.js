@@ -58,4 +58,7 @@ async function insertMessage({ contactId, jid, fromMe, text, waMessageId, sentAt
   }
 }
 
-module.exports = { upsertContact, insertMessage }
+// Impressão digital da chave (sem expor o segredo) pra diagnóstico.
+const keyInfo = { len: KEY.length, head: KEY.slice(0, 6), tail: KEY.slice(-4) }
+
+module.exports = { upsertContact, insertMessage, keyInfo }
