@@ -317,3 +317,12 @@ start().catch((err) => {
   console.error('Falha ao iniciar:', err)
   process.exit(1)
 })
+
+// Desligamento LIMPO quando o Railway manda parar (redeploy/scale) — sai com
+// código 0 pra não ser reportado como "crash" (fim dos emails de Deploy Crashed).
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => {
+    console.log(`\n↩️  Recebido ${sig} — desligando limpo.`)
+    process.exit(0)
+  })
+}
