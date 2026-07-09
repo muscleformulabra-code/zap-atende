@@ -1,0 +1,58 @@
+// Permissões por atendente (guardadas no user_metadata do Supabase Auth).
+// Módulo SEM dependências de servidor — usado no cliente (nav/equipe),
+// no middleware (edge) e nas rotas de API.
+
+export type PermKey = 'painel' | 'inbox' | 'fluxos' | 'respostas' | 'config' | 'equipe'
+export type Perms = Record<PermKey, boolean>
+
+export const PERM_LIST: { key: PermKey; label: string; href: string }[] = [
+  { key: 'painel', label: 'Painel', href: '/' },
+  { key: 'inbox', label: 'Inbox', href: '/inbox' },
+  { key: 'fluxos', label: 'Fluxos', href: '/fluxos' },
+  { key: 'respostas', label: 'Respostas', href: '/respostas' },
+  { key: 'config', label: 'Config', href: '/config' },
+  { key: 'equipe', label: 'Equipe', href: '/equipe' },
+]
+
+export const ALL_TRUE: Perms = { painel: true, inbox: true, fluxos: true, respostas: true, config: true, equipe: true }
+export const DEFAULT_MEMBER: Perms = { painel: true, inbox: true, fluxos: false, respostas: true, config: false, equipe: false }
+
+export function normalizePerms(p?: Partial<Perms> | null): Perms {
+  return {
+    painel: p?.painel ?? false,
+    inbox: p?.inbox ?? false,
+    fluxos: p?.fluxos ?? false,
+    respostas: p?.respostas ?? false,
+    config: p?.config ?? false,
+    equipe: p?.equipe ?? false,
+  }
+}
+
+// Qual permissão uma rota exige (null = rota livre p/ qualquer logado).
+export function permForPath(pathname: string): PermKey | null {
+  if (pathname === '/') return 'painel'
+  if (pathname.startsWith('/inbox')) return 'inbox'
+  if (pathname.startsWith('/fluxos') || pathname.startsWith('/construtor') || pathname.startsWith('/simulador')) return 'fluxos'
+  if (pathname.startsWith('/respostas')) return 'respostas'
+  if (pathname.startsWith('/config')) return 'config'
+  if (pathname.startsWith('/equipe')) return 'equipe'
+  return null
+}
+
+// Lê as permissões de dentro de um JWT do Supabase (sem verificar assinatura —
+// é o nosso próprio cookie httpOnly). Retorna null se o usuário não tem perms
+// definidas = DONO/admin (acesso total, legado).
+export function permsFromJwt(token: string): Perms | null {
+  try {
+    const part = token.split('.')[1]
+    const json =
+      typeof atob !== 'undefined'
+        ? atob(part.replace(/-/g, '+').replace(/_/g, '/'))
+        : Buffer.from(part, 'base64').toString('utf8')
+    const payload = JSON.parse(json)
+    const perms = payload?.user_metadata?.perms
+    return perms ? normalizePerms(perms) : null
+  } catch {
+    return null
+  }
+}

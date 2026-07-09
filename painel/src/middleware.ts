@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { PERM_LIST, permForPath, permsFromJwt } from './lib/perms'
 
 // Rotas abertas (sem login): tela de login, APIs de auth, e as APIs que o
 // CONECTOR (servidor externo) chama sem cookie.
@@ -15,6 +16,18 @@ export function middleware(req: NextRequest) {
     const url = req.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
+  }
+
+  // Bloqueio por permissão (só páginas; APIs passam). perms=null => dono/admin.
+  const need = permForPath(pathname)
+  if (need) {
+    const perms = permsFromJwt(token)
+    if (perms && !perms[need]) {
+      const dest = PERM_LIST.find((p) => perms[p.key])?.href ?? '/login'
+      const url = req.nextUrl.clone()
+      url.pathname = dest
+      return NextResponse.redirect(url)
+    }
   }
   return NextResponse.next()
 }
