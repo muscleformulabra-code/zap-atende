@@ -24,6 +24,8 @@ const { handleIncoming, getSettings, isWithinHours } = require('./bot')
 // Socket do WhatsApp (nível de módulo p/ o servidor HTTP do inbox usar).
 let sock = null
 let waConnected = false // true quando o WhatsApp está autenticado/conectado
+// Diagnóstico: contadores pra saber onde o fluxo de mensagem trava.
+const diag = { upsertEvents: 0, notifyEvents: 0, processed: 0, saved: 0, botReplies: 0, lastError: null, lastFrom: null, lastText: null, lastType: null }
 
 // Envia uma resposta do bot (texto OU imagem) com "digitando…" e atraso
 // aleatório (humanizado) — salvaguarda anti-ban.
@@ -111,12 +113,16 @@ async function start() {
 
   // Toda mensagem nova (recebida ou enviada) passa por aqui.
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    diag.upsertEvents++
+    diag.lastType = type
     if (type !== 'notify') return
+    diag.notifyEvents++
 
     for (const msg of messages) {
       const rawJid = msg.key.remoteJid
       // Ignora grupos e status (só conversa 1-a-1 com paciente).
       if (!rawJid || rawJid.endsWith('@g.us') || rawJid === 'status@broadcast') continue
+      diag.processed++
 
       const fromMe = !!msg.key.fromMe
       // WhatsApp novo usa @lid; normaliza pro número real (senderPn) quando recebemos.
@@ -138,6 +144,9 @@ async function start() {
           waMessageId: msg.key.id,
           sentAt,
         })
+        diag.saved++
+        diag.lastFrom = name || phone
+        diag.lastText = text
         const arrow = fromMe ? 'nós →' : '→'
         console.log(`💬 ${arrow} ${name || phone}: ${(text || '').slice(0, 60)}`)
 
@@ -164,6 +173,7 @@ async function start() {
           }
         }
       } catch (err) {
+        diag.lastError = err?.message || String(err)
         console.error('Erro ao salvar mensagem:', err.message)
       }
     }
@@ -179,6 +189,10 @@ http
     if (req.method === 'GET' && req.url === '/status') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       return res.end(JSON.stringify({ connected: !!sock, whatsapp: waConnected }))
+    }
+    if (req.method === 'GET' && req.url === '/debug') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      return res.end(JSON.stringify({ connected: !!sock, whatsapp: waConnected, ...diag }))
     }
     // QR pelo navegador (útil quando o conector está no servidor remoto).
     if (req.method === 'GET' && req.url === '/qr') {
