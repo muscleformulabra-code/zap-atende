@@ -42,13 +42,16 @@ export type Conversation = {
   last_text: string | null
   last_from_me: boolean | null
   last_sent_at: string | null
+  status: string
 }
 
 export async function getConversations(): Promise<Conversation[]> {
-  const res = await rest(
-    'conversations?select=*&order=last_sent_at.desc.nullslast&limit=100'
-  )
-  return res.json()
+  const [convs, sessions] = await Promise.all([
+    (await rest('conversations?select=*&order=last_sent_at.desc.nullslast&limit=100')).json(),
+    (await rest('flow_sessions?select=contact_id,status')).json(),
+  ])
+  const smap = new Map<string, string>((sessions as { contact_id: string; status: string }[]).map((s) => [s.contact_id, s.status]))
+  return (convs as Omit<Conversation, 'status'>[]).map((c) => ({ ...c, status: smap.get(c.contact_id) ?? 'active' }))
 }
 
 export type Message = {
@@ -105,12 +108,40 @@ export async function setDone(contactId: string): Promise<void> {
   await setSessionStatus(contactId, 'done')
 }
 
+// Reabre o atendimento (bot pausado, atendente conduz).
+export async function reopen(contactId: string): Promise<void> {
+  await setSessionStatus(contactId, 'handoff')
+}
+
+// Muda o status pra qualquer valor válido (usado pela ficha do lead no inbox).
+export async function setStatus(contactId: string, status: string): Promise<void> {
+  await setSessionStatus(contactId, status)
+}
+
 async function setSessionStatus(contactId: string, status: string): Promise<void> {
   await rest('flow_sessions?on_conflict=contact_id', {
     method: 'POST',
     headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
     body: JSON.stringify({ contact_id: contactId, status, updated_at: new Date().toISOString() }),
   })
+}
+
+// Ficha do lead: dados do contato + status do atendimento (pro painel do inbox).
+export type ContactCard = {
+  id: string
+  name: string | null
+  phone: string | null
+  jid: string
+  created_at: string
+  status: string
+}
+
+export async function getContactCard(contactId: string): Promise<ContactCard | null> {
+  const rows = await (await rest(`contacts?id=eq.${contactId}&select=id,name,phone,jid,created_at`)).json()
+  const contact = rows[0]
+  if (!contact) return null
+  const sess = await (await rest(`flow_sessions?contact_id=eq.${contactId}&select=status`)).json()
+  return { ...contact, status: sess[0]?.status ?? 'active' }
 }
 
 export type Stats = {
