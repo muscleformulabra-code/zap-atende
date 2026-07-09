@@ -23,6 +23,7 @@ const { handleIncoming, getSettings, isWithinHours } = require('./bot')
 
 // Socket do WhatsApp (nível de módulo p/ o servidor HTTP do inbox usar).
 let sock = null
+let waConnected = false // true quando o WhatsApp está autenticado/conectado
 
 // Envia uma resposta do bot (texto OU imagem) com "digitando…" e atraso
 // aleatório (humanizado) — salvaguarda anti-ban.
@@ -91,10 +92,12 @@ async function start() {
     }
 
     if (connection === 'open') {
+      waConnected = true
       console.log('\n✅ WhatsApp conectado! Agora é só mandar uma mensagem pro número que os contatos começam a aparecer no banco.\n')
     }
 
     if (connection === 'close') {
+      waConnected = false
       const code = lastDisconnect?.error?.output?.statusCode
       const loggedOut = code === DisconnectReason.loggedOut
       if (loggedOut) {
@@ -175,16 +178,24 @@ http
     if (req.method === 'OPTIONS') { res.writeHead(204); return res.end() }
     if (req.method === 'GET' && req.url === '/status') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      return res.end(JSON.stringify({ connected: !!sock }))
+      return res.end(JSON.stringify({ connected: !!sock, whatsapp: waConnected }))
     }
     // QR pelo navegador (útil quando o conector está no servidor remoto).
     if (req.method === 'GET' && req.url === '/qr') {
       const p = path.join(__dirname, 'qr.png')
-      if (fs.existsSync(p)) {
-        res.writeHead(200, { 'Content-Type': 'text/html' })
-        return res.end(`<html><body style="text-align:center;font-family:sans-serif"><h3>Escaneie no WhatsApp > Aparelhos conectados</h3><img src="/qr.png?t=${Date.now()}" width="360"/><p>Atualize a página se o QR vencer.</p></body></html>`)
-      }
-      res.writeHead(404); return res.end('Sem QR (provavelmente já conectado).')
+      res.writeHead(200, { 'Content-Type': 'text/html' })
+      return res.end(`<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="text-align:center;font-family:sans-serif;padding-top:24px">
+<h3>📱 Escaneie no WhatsApp<br><small>Aparelhos conectados › Conectar um aparelho</small></h3>
+<img id="q" src="/qr.png?t=${Date.now()}" width="320" style="max-width:90vw"/>
+<p id="s" style="color:#888">O QR se atualiza sozinho. Pode escanear no seu tempo.</p>
+<script>
+setInterval(async()=>{
+  try{const r=await fetch('/status');const d=await r.json();
+    if(d.whatsapp){document.getElementById('q').style.display='none';document.getElementById('s').innerHTML='✅ Conectado! Já pode fechar.';document.getElementById('s').style.color='green';return}}catch(e){}
+  document.getElementById('q').src='/qr.png?t='+Date.now()
+},8000)
+</script>
+</body></html>`)
     }
     if (req.method === 'GET' && req.url.startsWith('/qr.png')) {
       const p = path.join(__dirname, 'qr.png')
