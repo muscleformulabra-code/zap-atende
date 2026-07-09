@@ -205,6 +205,23 @@ http
       res.writeHead(200, { 'Content-Type': 'application/json' })
       return res.end(JSON.stringify({ connected: !!sock, whatsapp: waConnected, keyInfo, ...diag }))
     }
+    // Reset seguro: apaga a sessão do WhatsApp e reinicia (gera QR novo p/ re-parear).
+    // /reset?confirm=yes
+    if (req.method === 'GET' && req.url.startsWith('/reset')) {
+      const u = new URL(req.url, 'http://x')
+      if (u.searchParams.get('confirm') !== 'yes') {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        return res.end(JSON.stringify({ error: 'use /reset?confirm=yes' }))
+      }
+      try {
+        if (sock) { sock.logout().catch(() => {}) }
+        fs.rmSync(path.join(__dirname, 'auth'), { recursive: true, force: true })
+      } catch (e) { /* ignora */ }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true, msg: 'sessão apagada, reiniciando para gerar QR novo' }))
+      setTimeout(() => process.exit(0), 500) // Railway reinicia o container
+      return
+    }
     // Diagnóstico: testa se um número está no WhatsApp e envia uma msg de teste.
     // /testsend?num=5561983741339&text=oi  -> resolve o jid via onWhatsApp e envia.
     if (req.method === 'GET' && req.url.startsWith('/testsend')) {
