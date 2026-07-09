@@ -215,13 +215,19 @@ http
         return res.end(JSON.stringify({ error: 'use /reset?confirm=yes' }))
       }
       resetting = true // impede que creds.update recrie a sessão
+      // Apaga os ARQUIVOS dentro de ./auth (não a pasta — ela é o ponto de
+      // montagem do volume e não pode ser removida: dá EBUSY).
+      const removed = []
       try {
-        fs.rmSync(path.join(__dirname, 'auth'), { recursive: true, force: true })
-      } catch (e) { /* ignora */ }
+        const authDir = path.join(__dirname, 'auth')
+        for (const f of fs.readdirSync(authDir)) {
+          fs.rmSync(path.join(authDir, f), { recursive: true, force: true })
+          removed.push(f)
+        }
+      } catch (e) { diag.lastError = 'reset: ' + (e.message || e) }
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ ok: true, msg: 'sessão apagada, reiniciando para gerar QR novo' }))
-      // apaga de novo bem antes de sair (garante que nada recriou) e reinicia
-      setTimeout(() => { try { fs.rmSync(path.join(__dirname, 'auth'), { recursive: true, force: true }) } catch {} ; process.exit(0) }, 400)
+      res.end(JSON.stringify({ ok: true, removed, msg: 'sessão apagada, reiniciando para gerar QR novo' }))
+      setTimeout(() => process.exit(0), 400) // Railway reinicia o container
       return
     }
     // Diagnóstico: testa se um número está no WhatsApp e envia uma msg de teste.
