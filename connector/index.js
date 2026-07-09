@@ -125,6 +125,11 @@ async function start() {
       diag.processed++
 
       const fromMe = !!msg.key.fromMe
+      if (!fromMe) {
+        diag.lastRawJid = rawJid
+        diag.lastSenderPn = msg.key.senderPn || null
+        diag.lastParticipant = msg.key.participant || msg.key.participantPn || null
+      }
       // WhatsApp novo usa @lid; normaliza pro número real (senderPn) quando recebemos.
       const jid = (!fromMe && (msg.key.senderPn || msg.key.participantPn)) || rawJid
       const phone = jid.split('@')[0]
@@ -199,6 +204,30 @@ http
     if (req.method === 'GET' && req.url === '/debug') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       return res.end(JSON.stringify({ connected: !!sock, whatsapp: waConnected, keyInfo, ...diag }))
+    }
+    // Diagnóstico: testa se um número está no WhatsApp e envia uma msg de teste.
+    // /testsend?num=5561983741339&text=oi  -> resolve o jid via onWhatsApp e envia.
+    if (req.method === 'GET' && req.url.startsWith('/testsend')) {
+      const u = new URL(req.url, 'http://x')
+      const num = (u.searchParams.get('num') || '').replace(/\D/g, '')
+      const text = u.searchParams.get('text') || 'teste'
+      ;(async () => {
+        try {
+          if (!sock) throw new Error('sock nulo')
+          const check = await sock.onWhatsApp(num).catch((e) => ({ err: e.message }))
+          let sendResult = null
+          if (Array.isArray(check) && check[0]?.exists) {
+            const sent = await sock.sendMessage(check[0].jid, { text })
+            sendResult = { to: check[0].jid, id: sent?.key?.id }
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ num, onWhatsApp: check, sendResult }))
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: e.message }))
+        }
+      })()
+      return
     }
     // QR pelo navegador (útil quando o conector está no servidor remoto).
     if (req.method === 'GET' && req.url === '/qr') {
