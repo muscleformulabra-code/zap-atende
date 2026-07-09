@@ -41,11 +41,14 @@ function fmtTempo(min: number | null) {
   return `${h}h${m ? ' ' + m + 'min' : ''}`
 }
 
-function Card({ label, value, accent, hint }: { label: string; value: string | number; accent?: string; hint?: string }) {
+function Card({ label, value, icon, iconBg, accent, hint }: { label: string; value: string | number; icon: string; iconBg: string; accent?: string; hint?: string }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div className="text-sm font-medium text-gray-500">{label}</div>
-      <div className={`mt-2 text-3xl font-bold ${accent ?? 'text-gray-800'}`}>{value}</div>
+    <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition hover:shadow-md">
+      <div className="flex items-start justify-between">
+        <span className="text-sm font-medium text-gray-500">{label}</span>
+        <span className={`flex h-9 w-9 items-center justify-center rounded-xl text-base ${iconBg}`}>{icon}</span>
+      </div>
+      <div className={`mt-3 text-3xl font-bold ${accent ?? 'text-gray-800'}`}>{value}</div>
       {hint && <div className="mt-1 text-xs text-gray-400">{hint}</div>}
     </div>
   )
@@ -110,14 +113,14 @@ export default function Dashboard() {
         <>
           {/* cards principais */}
           <section className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Card label="Leads no período" value={data.leadsPeriodo} accent="text-emerald-600" hint="novos contatos" />
-            <Card label="Leads no total" value={data.leadsTotal} />
-            <Card label="Conversas em aberto" value={data.emAberto} accent="text-amber-600" hint="sem resposta (agora)" />
-            <Card label="Concluídas no período" value={data.fechadas} accent="text-gray-700" />
-            <Card label="Tempo médio de resposta" value={fmtTempo(data.tempoMedioRespMin)} accent="text-sky-600" />
-            <Card label="Em atendimento (humano)" value={data.emAtendimento} accent="text-indigo-600" />
-            <Card label="Recebidas no período" value={data.recebidas} />
-            <Card label="Enviadas no período" value={data.enviadas} />
+            <Card label="Leads no período" value={data.leadsPeriodo} icon="🌟" iconBg="bg-emerald-100" accent="text-emerald-600" hint="novos contatos" />
+            <Card label="Leads no total" value={data.leadsTotal} icon="👥" iconBg="bg-gray-100" />
+            <Card label="Conversas em aberto" value={data.emAberto} icon="⏳" iconBg="bg-amber-100" accent="text-amber-600" hint="sem resposta (agora)" />
+            <Card label="Concluídas no período" value={data.fechadas} icon="✅" iconBg="bg-green-100" accent="text-green-600" />
+            <Card label="Tempo médio de resposta" value={fmtTempo(data.tempoMedioRespMin)} icon="⏱️" iconBg="bg-sky-100" accent="text-sky-600" />
+            <Card label="Em atendimento (humano)" value={data.emAtendimento} icon="🙋" iconBg="bg-indigo-100" accent="text-indigo-600" />
+            <Card label="Recebidas no período" value={data.recebidas} icon="📥" iconBg="bg-slate-100" accent="text-slate-700" />
+            <Card label="Enviadas no período" value={data.enviadas} icon="📤" iconBg="bg-violet-100" accent="text-violet-600" />
           </section>
 
           {/* ranking de atendentes */}

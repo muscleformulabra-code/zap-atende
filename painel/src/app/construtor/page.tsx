@@ -277,7 +277,7 @@ export default function Construtor() {
   const menuOptions = selData?.options ?? []
 
   return (
-    <div className="flex h-screen flex-col bg-gray-50">
+    <div className="flex h-full flex-col bg-gray-50">
       <header className="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-2.5">
         <a href="/fluxos" className="text-sm text-gray-400 hover:text-gray-700">← fluxos</a>
         <h1 className="text-[15px] font-bold text-gray-900">{flowName || 'Construtor'}</h1>

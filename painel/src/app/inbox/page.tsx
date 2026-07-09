@@ -85,7 +85,7 @@ export default function Inbox() {
   }
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-full">
       {/* lista de conversas */}
       <aside className="flex w-80 flex-col border-r border-gray-200 bg-white">
         <div className="border-b border-gray-100 px-4 py-3">
