@@ -25,7 +25,7 @@ const { handleIncoming, getSettings, isWithinHours } = require('./bot')
 let sock = null
 let waConnected = false // true quando o WhatsApp está autenticado/conectado
 // Diagnóstico: contadores pra saber onde o fluxo de mensagem trava.
-const diag = { upsertEvents: 0, notifyEvents: 0, processed: 0, saved: 0, botReplies: 0, lastError: null, lastFrom: null, lastText: null, lastType: null }
+const diag = { upsertEvents: 0, notifyEvents: 0, processed: 0, saved: 0, botReplies: 0, botPath: null, lastReplyCount: null, lastBotError: null, lastError: null, lastFrom: null, lastText: null, lastType: null }
 
 // Envia uma resposta do bot (texto OU imagem) com "digitando…" e atraso
 // aleatório (humanizado) — salvaguarda anti-ban.
@@ -154,21 +154,27 @@ async function start() {
         if (!fromMe && text) {
           const target = jid // já normalizado pro número real
           try {
-            const settings = await getSettings().catch(() => null)
+            const settings = await getSettings().catch((e) => { diag.lastBotError = 'getSettings: ' + (e?.message || e); return null })
             if (settings && settings.bot_enabled === false) {
-              // robô desligado nas configurações → não responde
+              diag.botPath = 'bot_desligado'
             } else if (settings && !isWithinHours(settings.hours)) {
+              diag.botPath = 'fora_horario'
               await botSend(sock, target, settings.off_hours_message, settings)
+              diag.botReplies++
               console.log('   ↳ fora do horário, avisou', target)
             } else {
               const reengage = settings?.reengage_hours ?? 12
               const { replies } = await handleIncoming(contact.id, text, reengage)
+              diag.botPath = 'fluxo'
+              diag.lastReplyCount = replies.length
               for (const r of replies) {
                 await botSend(sock, target, r, settings)
+                diag.botReplies++
                 console.log('   ↳ enviou:', (r.text || (r.image ? '[imagem]' : '')).slice(0, 40))
               }
             }
           } catch (err) {
+            diag.lastBotError = err?.message || String(err)
             console.error('Erro no chatbot:', err?.message || err, err?.stack || '')
           }
         }
