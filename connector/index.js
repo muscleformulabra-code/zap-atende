@@ -1,0 +1,225 @@
+// ─────────────────────────────────────────────────────────────
+//  ZAP ATENDE — Conector WhatsApp (Fase 1: Fundação)
+//  Conecta o WhatsApp por QR code e salva TODO contato e mensagem
+//  automaticamente no banco (Supabase).
+// ─────────────────────────────────────────────────────────────
+require('dotenv').config()
+
+const {
+  default: makeWASocket,
+  useMultiFileAuthState,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+} = require('@whiskeysockets/baileys')
+const qrcode = require('qrcode-terminal')
+const QRImage = require('qrcode')
+const path = require('path')
+const http = require('http')
+const fs = require('fs')
+const pino = require('pino')
+
+const { upsertContact, insertMessage } = require('./supabase')
+const { handleIncoming, getSettings, isWithinHours } = require('./bot')
+
+// Socket do WhatsApp (nível de módulo p/ o servidor HTTP do inbox usar).
+let sock = null
+
+// Envia uma resposta do bot (texto OU imagem) com "digitando…" e atraso
+// aleatório (humanizado) — salvaguarda anti-ban.
+async function botSend(sock, target, reply, settings) {
+  const r = typeof reply === 'string' ? { text: reply } : reply
+  const min = settings?.min_delay_ms ?? 1200
+  const max = Math.max(settings?.max_delay_ms ?? 3500, min)
+  const wait = Math.floor(min + Math.random() * (max - min))
+  try {
+    await sock.sendPresenceUpdate('composing', target)
+  } catch {}
+  await new Promise((res) => setTimeout(res, wait))
+  if (r.image) {
+    await sock.sendMessage(target, { image: { url: r.image }, caption: r.caption || '' })
+  } else {
+    await sock.sendMessage(target, { text: r.text })
+  }
+}
+
+// Extrai o texto de uma mensagem (ou um rótulo para mídia).
+function extractText(msg) {
+  const m = msg.message
+  if (!m) return null
+  return (
+    m.conversation ||
+    m.extendedTextMessage?.text ||
+    m.imageMessage?.caption ||
+    m.videoMessage?.caption ||
+    (m.imageMessage && '[imagem]') ||
+    (m.audioMessage && '[áudio]') ||
+    (m.documentMessage && '[documento]') ||
+    (m.stickerMessage && '[figurinha]') ||
+    (m.locationMessage && '[localização]') ||
+    (m.contactMessage && '[contato]') ||
+    null
+  )
+}
+
+async function start() {
+  // Salva a sessão do WhatsApp na pasta ./auth (não precisa reescanear toda vez).
+  const { state, saveCreds } = await useMultiFileAuthState('./auth')
+  const { version } = await fetchLatestBaileysVersion()
+
+  sock = makeWASocket({
+    version,
+    auth: state,
+    logger: pino({ level: 'silent' }),
+    browser: ['Zap Atende', 'Chrome', '1.0.0'],
+  })
+
+  sock.ev.on('creds.update', saveCreds)
+
+  // Conexão: mostra o QR, avisa quando conecta, reconecta se cair.
+  sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect, qr } = update
+
+    if (qr) {
+      console.log('\n📱 Abra o WhatsApp do CHIP DO BOT > Aparelhos conectados > Conectar aparelho')
+      console.log('   e escaneie o QR abaixo:\n')
+      qrcode.generate(qr, { small: true })
+      // Também salva o QR como imagem (mais fácil de escanear).
+      const out = path.join(__dirname, 'qr.png')
+      QRImage.toFile(out, qr, { width: 400, margin: 2 }, (err) => {
+        if (!err) console.log(`🖼️  QR também salvo em: ${out}`)
+      })
+    }
+
+    if (connection === 'open') {
+      console.log('\n✅ WhatsApp conectado! Agora é só mandar uma mensagem pro número que os contatos começam a aparecer no banco.\n')
+    }
+
+    if (connection === 'close') {
+      const code = lastDisconnect?.error?.output?.statusCode
+      const loggedOut = code === DisconnectReason.loggedOut
+      if (loggedOut) {
+        console.log('\n🚪 Deslogado. Apague a pasta connector/auth e rode de novo para reconectar.\n')
+      } else {
+        console.log('🔄 Conexão caiu, reconectando...')
+        start()
+      }
+    }
+  })
+
+  // Toda mensagem nova (recebida ou enviada) passa por aqui.
+  sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    if (type !== 'notify') return
+
+    for (const msg of messages) {
+      const rawJid = msg.key.remoteJid
+      // Ignora grupos e status (só conversa 1-a-1 com paciente).
+      if (!rawJid || rawJid.endsWith('@g.us') || rawJid === 'status@broadcast') continue
+
+      const fromMe = !!msg.key.fromMe
+      // WhatsApp novo usa @lid; normaliza pro número real (senderPn) quando recebemos.
+      const jid = (!fromMe && (msg.key.senderPn || msg.key.participantPn)) || rawJid
+      const phone = jid.split('@')[0]
+      const name = msg.pushName || null
+      const text = extractText(msg)
+      const sentAt = msg.messageTimestamp
+        ? new Date(Number(msg.messageTimestamp) * 1000).toISOString()
+        : new Date().toISOString()
+
+      try {
+        const contact = await upsertContact({ jid, phone, name })
+        await insertMessage({
+          contactId: contact.id,
+          jid,
+          fromMe,
+          text,
+          waMessageId: msg.key.id,
+          sentAt,
+        })
+        const arrow = fromMe ? 'nós →' : '→'
+        console.log(`💬 ${arrow} ${name || phone}: ${(text || '').slice(0, 60)}`)
+
+        // Chatbot: só responde a mensagens do paciente (não às nossas).
+        if (!fromMe && text) {
+          const target = jid // já normalizado pro número real
+          try {
+            const settings = await getSettings().catch(() => null)
+            if (settings && settings.bot_enabled === false) {
+              // robô desligado nas configurações → não responde
+            } else if (settings && !isWithinHours(settings.hours)) {
+              await botSend(sock, target, settings.off_hours_message, settings)
+              console.log('   ↳ fora do horário, avisou', target)
+            } else {
+              const reengage = settings?.reengage_hours ?? 12
+              const { replies } = await handleIncoming(contact.id, text, reengage)
+              for (const r of replies) {
+                await botSend(sock, target, r, settings)
+                console.log('   ↳ enviou:', (r.text || (r.image ? '[imagem]' : '')).slice(0, 40))
+              }
+            }
+          } catch (err) {
+            console.error('Erro no chatbot:', err?.message || err, err?.stack || '')
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao salvar mensagem:', err.message)
+      }
+    }
+  })
+}
+
+// ── Servidor HTTP: o painel (inbox) manda mensagens pelo WhatsApp por aqui ──
+http
+  .createServer((req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    if (req.method === 'OPTIONS') { res.writeHead(204); return res.end() }
+    if (req.method === 'GET' && req.url === '/status') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      return res.end(JSON.stringify({ connected: !!sock }))
+    }
+    // QR pelo navegador (útil quando o conector está no servidor remoto).
+    if (req.method === 'GET' && req.url === '/qr') {
+      const p = path.join(__dirname, 'qr.png')
+      if (fs.existsSync(p)) {
+        res.writeHead(200, { 'Content-Type': 'text/html' })
+        return res.end(`<html><body style="text-align:center;font-family:sans-serif"><h3>Escaneie no WhatsApp > Aparelhos conectados</h3><img src="/qr.png?t=${Date.now()}" width="360"/><p>Atualize a página se o QR vencer.</p></body></html>`)
+      }
+      res.writeHead(404); return res.end('Sem QR (provavelmente já conectado).')
+    }
+    if (req.method === 'GET' && req.url.startsWith('/qr.png')) {
+      const p = path.join(__dirname, 'qr.png')
+      if (fs.existsSync(p)) { res.writeHead(200, { 'Content-Type': 'image/png' }); return fs.createReadStream(p).pipe(res) }
+      res.writeHead(404); return res.end()
+    }
+    if (req.method === 'POST' && req.url === '/send') {
+      let body = ''
+      req.on('data', (c) => (body += c))
+      req.on('end', async () => {
+        try {
+          const { to, text, sentBy, contactId } = JSON.parse(body || '{}')
+          if (!to || !text) throw new Error('to e text obrigatórios')
+          if (!sock) throw new Error('WhatsApp não conectado')
+          await sock.sendPresenceUpdate('composing', to).catch(() => {})
+          const sent = await sock.sendMessage(to, { text })
+          // Salva já atribuído ao atendente. O echo posterior é deduplicado pelo wa_message_id.
+          try {
+            await insertMessage({ contactId, jid: to, fromMe: true, text, waMessageId: sent?.key?.id, sentAt: new Date().toISOString(), sentBy })
+          } catch {}
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true }))
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: e.message }))
+        }
+      })
+      return
+    }
+    res.writeHead(404)
+    res.end()
+  })
+  .listen(process.env.PORT || 3333, () => console.log(`🔌 API do conector na porta ${process.env.PORT || 3333} (envio pelo inbox + /qr)`))
+
+start().catch((err) => {
+  console.error('Falha ao iniciar:', err)
+  process.exit(1)
+})

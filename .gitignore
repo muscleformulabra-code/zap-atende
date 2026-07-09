@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.local
+connector/auth/
+connector/qr.png
+painel/.next/
+painel/out/
+.DS_Store
+*.log
