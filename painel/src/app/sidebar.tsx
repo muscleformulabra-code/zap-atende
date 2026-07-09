@@ -7,6 +7,7 @@ import { ALL_TRUE, PERM_LIST, permForPath, type PermKey, type Perms } from '@/li
 const ICONS: Record<PermKey, string> = {
   painel: '📊',
   inbox: '💬',
+  contatos: '📇',
   fluxos: '🔀',
   respostas: '⚡',
   config: '⚙️',

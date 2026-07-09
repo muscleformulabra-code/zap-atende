@@ -2,25 +2,27 @@
 // Módulo SEM dependências de servidor — usado no cliente (nav/equipe),
 // no middleware (edge) e nas rotas de API.
 
-export type PermKey = 'painel' | 'inbox' | 'fluxos' | 'respostas' | 'config' | 'equipe'
+export type PermKey = 'painel' | 'inbox' | 'contatos' | 'fluxos' | 'respostas' | 'config' | 'equipe'
 export type Perms = Record<PermKey, boolean>
 
 export const PERM_LIST: { key: PermKey; label: string; href: string }[] = [
   { key: 'painel', label: 'Painel', href: '/' },
   { key: 'inbox', label: 'Inbox', href: '/inbox' },
+  { key: 'contatos', label: 'Contatos', href: '/contatos' },
   { key: 'fluxos', label: 'Fluxos', href: '/fluxos' },
   { key: 'respostas', label: 'Respostas', href: '/respostas' },
   { key: 'config', label: 'Config', href: '/config' },
   { key: 'equipe', label: 'Equipe', href: '/equipe' },
 ]
 
-export const ALL_TRUE: Perms = { painel: true, inbox: true, fluxos: true, respostas: true, config: true, equipe: true }
-export const DEFAULT_MEMBER: Perms = { painel: true, inbox: true, fluxos: false, respostas: true, config: false, equipe: false }
+export const ALL_TRUE: Perms = { painel: true, inbox: true, contatos: true, fluxos: true, respostas: true, config: true, equipe: true }
+export const DEFAULT_MEMBER: Perms = { painel: true, inbox: true, contatos: true, fluxos: false, respostas: true, config: false, equipe: false }
 
 export function normalizePerms(p?: Partial<Perms> | null): Perms {
   return {
     painel: p?.painel ?? false,
     inbox: p?.inbox ?? false,
+    contatos: p?.contatos ?? false,
     fluxos: p?.fluxos ?? false,
     respostas: p?.respostas ?? false,
     config: p?.config ?? false,
@@ -32,6 +34,7 @@ export function normalizePerms(p?: Partial<Perms> | null): Perms {
 export function permForPath(pathname: string): PermKey | null {
   if (pathname === '/') return 'painel'
   if (pathname.startsWith('/inbox')) return 'inbox'
+  if (pathname.startsWith('/contatos')) return 'contatos'
   if (pathname.startsWith('/fluxos') || pathname.startsWith('/construtor') || pathname.startsWith('/simulador')) return 'fluxos'
   if (pathname.startsWith('/respostas')) return 'respostas'
   if (pathname.startsWith('/config')) return 'config'

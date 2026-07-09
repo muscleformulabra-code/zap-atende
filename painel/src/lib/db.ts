@@ -136,6 +136,53 @@ export type ContactCard = {
   status: string
 }
 
+// ── Página de Contatos (lista, busca, criar, importar) ──
+export type ContactRow = { id: string; name: string | null; phone: string | null; jid: string; created_at: string }
+
+function normPhone(phone: string): string {
+  return (phone || '').replace(/\D/g, '')
+}
+
+export async function listContacts(search?: string, limit = 500): Promise<ContactRow[]> {
+  let path = `contacts?select=id,name,phone,jid,created_at&order=created_at.desc&limit=${limit}`
+  if (search && search.trim()) {
+    const s = encodeURIComponent(search.trim())
+    path += `&or=(name.ilike.*${s}*,phone.ilike.*${s}*)`
+  }
+  return (await rest(path)).json()
+}
+
+export async function countContacts(): Promise<number> {
+  return count('contacts?select=id')
+}
+
+export async function createContact(name: string, phone: string): Promise<void> {
+  const digits = normPhone(phone)
+  if (digits.length < 8) throw new Error('Telefone inválido (informe com DDD)')
+  await rest('contacts?on_conflict=jid', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ jid: `${digits}@s.whatsapp.net`, phone: digits, name: name?.trim() || null }),
+  })
+}
+
+// Importa vários contatos de uma vez (upsert por jid). Retorna quantos entraram.
+export async function importContacts(rows: { name?: string; phone: string }[]): Promise<number> {
+  const valid = rows
+    .map((r) => ({ name: (r.name || '').trim() || null, phone: normPhone(r.phone) }))
+    .filter((r) => r.phone.length >= 8)
+    .map((r) => ({ jid: `${r.phone}@s.whatsapp.net`, phone: r.phone, name: r.name }))
+  if (valid.length === 0) return 0
+  for (let i = 0; i < valid.length; i += 500) {
+    await rest('contacts?on_conflict=jid', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(valid.slice(i, i + 500)),
+    })
+  }
+  return valid.length
+}
+
 export async function getContactCard(contactId: string): Promise<ContactCard | null> {
   const rows = await (await rest(`contacts?id=eq.${contactId}&select=id,name,phone,jid,created_at`)).json()
   const contact = rows[0]
