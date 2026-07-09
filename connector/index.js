@@ -164,12 +164,8 @@ async function start() {
             const settings = await getSettings().catch((e) => { diag.lastBotError = 'getSettings: ' + (e?.message || e); return null })
             if (settings && settings.bot_enabled === false) {
               diag.botPath = 'bot_desligado'
-            } else if (settings && !isWithinHours(settings.hours)) {
-              diag.botPath = 'fora_horario'
-              await botSend(sock, target, settings.off_hours_message, settings)
-              diag.botReplies++
-              console.log('   ↳ fora do horário, avisou', target)
             } else {
+              // Sem mensagem de "fora de horário": o bot responde/roteia sempre.
               const reengage = settings?.reengage_hours ?? 12
               const { replies } = await handleIncoming(contact.id, text, reengage)
               diag.botPath = 'fluxo'

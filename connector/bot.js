@@ -67,18 +67,41 @@ async function callBot(state, input) {
 }
 
 // Processa uma mensagem recebida e devolve as respostas do bot.
-// - Se o contato já está com atendente (handoff) recente, o bot fica quieto.
-// - Se o paciente volta depois de `reengageHours` de inatividade, o fluxo REINICIA.
+// Regras (iguais ao BotConversa):
+//  - Sem sessão OU voltou depois de MUITO tempo (reengageHours) → fluxo de
+//    BOAS-VINDAS (pré-atendimento, com menu). É o "1º contato / faz tempo".
+//  - Concluído há POUCO tempo → "2º contato": só REABRE pro atendente, SEM
+//    repetir o menu (anti-spam, evita ban).
+//  - Em atendimento humano (handoff) → bot fica quieto, conversa continua aberta.
+//  - Fluxo ativo → avança normalmente.
+// Em TODOS os casos de mensagem nova, a conversa deixa de ficar "concluída"
+// (reabre) — quem estava done vira handoff/ativo.
 async function handleIncoming(contactId, text, reengageHours = 12) {
   const session = await getSession(contactId)
-  const stale =
-    session && session.updatedAt && Date.now() - Date.parse(session.updatedAt) > reengageHours * 3600 * 1000
+  const age = session && session.updatedAt ? Date.now() - Date.parse(session.updatedAt) : Infinity
+  const stale = age > reengageHours * 3600 * 1000
 
-  // Humano atendendo (handoff) e ainda recente → bot não interfere.
-  if (session && session.status === 'handoff' && !stale) return { replies: [] }
+  // Sem sessão OU voltou depois de muito tempo → boas-vindas (menu).
+  if (!session || stale) {
+    const result = await callBot(null, text)
+    await saveSession(contactId, result.state)
+    return result
+  }
 
-  const isNew = !session || session.status === 'done' || stale
-  const result = await callBot(isNew ? null : session, text)
+  // Concluído há pouco tempo → 2º contato: reabre pro atendente, sem menu.
+  if (session.status === 'done') {
+    await saveSession(contactId, { flowId: session.flowId, currentNode: null, status: 'handoff' })
+    return { replies: [] }
+  }
+
+  // Atendente humano no comando → bot quieto (mantém a conversa aberta/recente).
+  if (session.status === 'handoff') {
+    await saveSession(contactId, { flowId: session.flowId, currentNode: session.currentNode, status: 'handoff' })
+    return { replies: [] }
+  }
+
+  // Fluxo ativo → avança.
+  const result = await callBot(session, text)
   await saveSession(contactId, result.state)
   return result
 }
