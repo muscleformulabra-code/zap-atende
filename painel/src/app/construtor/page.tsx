@@ -1,9 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ReactFlow,
   Background,
+  BackgroundVariant,
   Controls,
   MiniMap,
   addEdge,
@@ -26,115 +27,139 @@ import {
   type NodeData,
 } from '@/lib/flow-graph'
 
-const NODE_W = 240
-const HEADER_H = 30
-const TEXT_H = 44
-const ROW_H = 30
+// Alturas fixas dos blocos com múltiplas saídas (usadas pra posicionar os pontos de conexão).
+const NODE_W = 256
+const HEADER_H = 42
+const TEXT_H = 46
+const ROW_H = 34
 
-const HEAD: Record<BlockType, string> = {
-  message: 'text-emerald-600',
-  menu: 'text-indigo-600',
-  handoff: 'text-amber-600',
-  action: 'text-yellow-600',
-  condition: 'text-sky-600',
-  randomizer: 'text-fuchsia-600',
-  delay: 'text-slate-600',
-  flowjump: 'text-rose-600',
-  integration: 'text-teal-600',
-  image: 'text-pink-600',
+// Estilos (classes ESTÁTICAS pro Tailwind não podar) por tipo de bloco.
+type Style = { accent: string; chip: string; ring: string; hover: string; handle: string; label: string }
+const S: Record<BlockType, Style> = {
+  message:     { accent: 'before:bg-emerald-400', chip: 'bg-emerald-100 text-emerald-700', ring: 'ring-emerald-400/60', hover: 'hover:border-emerald-300 hover:bg-emerald-50/40', handle: '!bg-emerald-400', label: 'text-emerald-700' },
+  image:       { accent: 'before:bg-pink-400',    chip: 'bg-pink-100 text-pink-700',       ring: 'ring-pink-400/60',    hover: 'hover:border-pink-300 hover:bg-pink-50/40',       handle: '!bg-pink-400',    label: 'text-pink-700' },
+  menu:        { accent: 'before:bg-indigo-400',  chip: 'bg-indigo-100 text-indigo-700',   ring: 'ring-indigo-400/60',  hover: 'hover:border-indigo-300 hover:bg-indigo-50/40',   handle: '!bg-indigo-400',  label: 'text-indigo-700' },
+  condition:   { accent: 'before:bg-sky-400',     chip: 'bg-sky-100 text-sky-700',         ring: 'ring-sky-400/60',     hover: 'hover:border-sky-300 hover:bg-sky-50/40',         handle: '!bg-sky-400',     label: 'text-sky-700' },
+  randomizer:  { accent: 'before:bg-fuchsia-400', chip: 'bg-fuchsia-100 text-fuchsia-700', ring: 'ring-fuchsia-400/60', hover: 'hover:border-fuchsia-300 hover:bg-fuchsia-50/40', handle: '!bg-fuchsia-400', label: 'text-fuchsia-700' },
+  delay:       { accent: 'before:bg-slate-400',   chip: 'bg-slate-100 text-slate-700',     ring: 'ring-slate-400/60',   hover: 'hover:border-slate-300 hover:bg-slate-50',        handle: '!bg-slate-400',   label: 'text-slate-700' },
+  action:      { accent: 'before:bg-amber-400',   chip: 'bg-amber-100 text-amber-700',     ring: 'ring-amber-400/60',   hover: 'hover:border-amber-300 hover:bg-amber-50/40',     handle: '!bg-amber-400',   label: 'text-amber-700' },
+  flowjump:    { accent: 'before:bg-rose-400',    chip: 'bg-rose-100 text-rose-700',       ring: 'ring-rose-400/60',    hover: 'hover:border-rose-300 hover:bg-rose-50/40',       handle: '!bg-rose-400',    label: 'text-rose-700' },
+  integration: { accent: 'before:bg-teal-400',    chip: 'bg-teal-100 text-teal-700',       ring: 'ring-teal-400/60',    hover: 'hover:border-teal-300 hover:bg-teal-50/40',       handle: '!bg-teal-400',    label: 'text-teal-700' },
+  handoff:     { accent: 'before:bg-orange-400',  chip: 'bg-orange-100 text-orange-700',   ring: 'ring-orange-400/60',  hover: 'hover:border-orange-300 hover:bg-orange-50/40',   handle: '!bg-orange-400',  label: 'text-orange-700' },
 }
 
-function card(selected?: boolean) {
-  return `rounded-xl border bg-white text-xs shadow-sm ${selected ? 'border-gray-800 ring-2 ring-gray-300' : 'border-gray-200'}`
-}
+const HANDLE = '!h-3.5 !w-3.5 !border-2 !border-white !shadow'
 
-function Header({ type }: { type: BlockType }) {
+function Shell({ type, selected, isStart, children }: { type: BlockType; selected?: boolean; isStart?: boolean; children: React.ReactNode }) {
   const m = blockMeta(type)
-  return <div className={`border-b border-gray-100 px-3 py-1.5 font-semibold ${HEAD[type]}`}>{m.emoji} {m.label}</div>
+  const s = S[type]
+  return (
+    <div
+      style={{ width: NODE_W }}
+      className={`relative overflow-hidden rounded-2xl border bg-white shadow-md transition
+        before:absolute before:left-0 before:top-0 before:h-full before:w-1.5 before:content-[''] ${s.accent}
+        ${selected ? `border-transparent ring-2 ${s.ring}` : 'border-gray-200'}`}
+    >
+      <div style={{ height: HEADER_H }} className="flex items-center gap-2 pl-4 pr-3">
+        <span className={`flex h-6 w-6 items-center justify-center rounded-lg text-sm ${s.chip}`}>{m.emoji}</span>
+        <span className={`text-[13px] font-semibold ${s.label}`}>{m.label}</span>
+        {isStart && <span className="ml-auto rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">início</span>}
+      </div>
+      {children}
+    </div>
+  )
 }
 
 function bodyText(t: BlockType, d: NodeData): string {
   switch (t) {
-    case 'message': return d.text || 'sem texto'
-    case 'delay': return `Espera ${d.seconds ?? 2}s (digitando…)`
+    case 'message': return d.text || 'Clique para escrever a mensagem…'
+    case 'delay': return `⏱️ Espera ${d.seconds ?? 2}s mostrando “digitando…”`
     case 'integration': return d.url || 'URL não configurada'
-    case 'image': return d.imageUrl ? `🖼️ ${d.caption || 'imagem'}` : '🖼️ imagem (sem URL)'
-    case 'handoff': return d.text || 'passa pro atendente humano'
-    case 'action': return d.action === 'end' ? 'Encerrar conversa' : 'Reiniciar fluxo'
-    case 'flowjump': return d.flowName ? `→ ${d.flowName}` : 'escolha um fluxo'
+    case 'image': return d.imageUrl ? `🖼️ ${d.caption || 'imagem'}` : 'Cole a URL da imagem…'
+    case 'handoff': return d.text || 'Passa para o atendente humano'
+    case 'action': return d.action === 'end' ? '🛑 Encerrar conversa' : '🔄 Reiniciar automação (encerra após o clique)'
+    case 'flowjump': return d.flowName ? `→ ${d.flowName}` : 'Escolha um fluxo de destino…'
     default: return ''
   }
 }
 
-// Blocos com uma única saída ("próximo") — e os terminais (sem saída).
+function NextRow({ type }: { type: BlockType }) {
+  return (
+    <div className="relative flex items-center justify-end gap-1 border-t border-gray-100 bg-gray-50/60 px-4 py-1.5 text-[11px] font-medium text-gray-400">
+      Próximo passo →
+      <Handle type="source" position={Position.Right} className={`${HANDLE} ${S[type].handle}`} />
+    </div>
+  )
+}
+
+// Blocos de uma saída ("próximo") e os terminais (handoff/action, sem saída).
 function SimpleNode({ type, data, selected }: NodeProps) {
   const t = type as BlockType
-  const d = data as NodeData
+  const d = data as NodeData & { __start?: boolean }
   const hasNext = t === 'message' || t === 'delay' || t === 'integration' || t === 'image'
   return (
-    <div className={card(selected)} style={{ width: NODE_W }}>
-      <Handle type="target" position={Position.Left} />
-      <Header type={t} />
-      <div className="whitespace-pre-wrap px-3 py-2 text-gray-600">{bodyText(t, d)}</div>
-      {hasNext && <Handle type="source" position={Position.Right} />}
-    </div>
+    <Shell type={t} selected={selected} isStart={d.__start}>
+      <Handle type="target" position={Position.Left} className={`${HANDLE} !bg-gray-300`} />
+      <div className="whitespace-pre-wrap px-4 pb-2.5 pt-1 text-xs leading-relaxed text-gray-600">{bodyText(t, d)}</div>
+      {hasNext ? <NextRow type={t} /> : (
+        <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-1.5 text-[11px] font-medium text-gray-400">Fim do fluxo</div>
+      )}
+    </Shell>
   )
 }
 
 function MenuNode({ data, selected }: NodeProps) {
-  const d = data as NodeData
+  const d = data as NodeData & { __start?: boolean }
   const options = d.options ?? []
   return (
-    <div className={card(selected)} style={{ width: NODE_W }}>
-      <Handle type="target" position={Position.Left} />
-      <Header type="menu" />
-      <div className="overflow-hidden px-3 py-1 text-gray-600" style={{ height: TEXT_H }}>{d.text || 'sem pergunta'}</div>
+    <Shell type="menu" selected={selected} isStart={d.__start}>
+      <Handle type="target" position={Position.Left} className={`${HANDLE} !bg-gray-300`} />
+      <div className="overflow-hidden px-4 pb-1.5 pt-0.5 text-xs leading-relaxed text-gray-600" style={{ height: TEXT_H }}>{d.text || 'Pergunta do menu…'}</div>
       {options.map((o, i) => (
-        <div key={o.id} className="flex items-center border-t border-gray-50 px-3 text-gray-700" style={{ height: ROW_H }}>
-          <span className="truncate">{i + 1}. {o.label}</span>
-          <Handle type="source" id={`opt-${o.id}`} position={Position.Right} style={{ top: HEADER_H + TEXT_H + i * ROW_H + ROW_H / 2 }} />
+        <div key={o.id} className="relative flex items-center border-t border-gray-100 px-4 text-xs text-gray-700" style={{ height: ROW_H }}>
+          <span className="mr-1.5 flex h-4 w-4 shrink-0 items-center justify-center rounded bg-indigo-100 text-[10px] font-bold text-indigo-700">{i + 1}</span>
+          <span className="truncate">{o.label}</span>
+          <Handle type="source" id={`opt-${o.id}`} position={Position.Right} className={`${HANDLE} !bg-indigo-400`} style={{ top: HEADER_H + TEXT_H + i * ROW_H + ROW_H / 2 }} />
         </div>
       ))}
-    </div>
+    </Shell>
   )
 }
 
 function ConditionNode({ data, selected }: NodeProps) {
-  const d = data as NodeData
-  const info = 34
+  const d = data as NodeData & { __start?: boolean }
+  const info = 38
   return (
-    <div className={card(selected)} style={{ width: NODE_W }}>
-      <Handle type="target" position={Position.Left} />
-      <Header type="condition" />
-      <div className="overflow-hidden px-3 py-1 text-gray-600" style={{ height: info }}>Se contém: “{d.keyword || '—'}”</div>
-      <div className="flex items-center border-t border-gray-50 px-3 text-emerald-700" style={{ height: ROW_H }}>
-        <span>✅ sim</span>
-        <Handle type="source" id="yes" position={Position.Right} style={{ top: HEADER_H + info + ROW_H / 2 }} />
+    <Shell type="condition" selected={selected} isStart={d.__start}>
+      <Handle type="target" position={Position.Left} className={`${HANDLE} !bg-gray-300`} />
+      <div className="overflow-hidden px-4 pb-1.5 pt-0.5 text-xs text-gray-600" style={{ height: info }}>Se contém: <b>“{d.keyword || '—'}”</b></div>
+      <div className="relative flex items-center border-t border-gray-100 px-4 text-xs font-medium text-emerald-600" style={{ height: ROW_H }}>
+        ✅ sim
+        <Handle type="source" id="yes" position={Position.Right} className={`${HANDLE} !bg-emerald-400`} style={{ top: HEADER_H + info + ROW_H / 2 }} />
       </div>
-      <div className="flex items-center border-t border-gray-50 px-3 text-rose-600" style={{ height: ROW_H }}>
-        <span>🚫 não</span>
-        <Handle type="source" id="no" position={Position.Right} style={{ top: HEADER_H + info + ROW_H + ROW_H / 2 }} />
+      <div className="relative flex items-center border-t border-gray-100 px-4 text-xs font-medium text-rose-500" style={{ height: ROW_H }}>
+        🚫 não
+        <Handle type="source" id="no" position={Position.Right} className={`${HANDLE} !bg-rose-400`} style={{ top: HEADER_H + info + ROW_H + ROW_H / 2 }} />
       </div>
-    </div>
+    </Shell>
   )
 }
 
 function RandomizerNode({ data, selected }: NodeProps) {
-  const d = data as NodeData
+  const d = data as NodeData & { __start?: boolean }
   const branches = d.branches ?? []
-  const info = 28
+  const info = 32
   return (
-    <div className={card(selected)} style={{ width: NODE_W }}>
-      <Handle type="target" position={Position.Left} />
-      <Header type="randomizer" />
-      <div className="px-3 py-1 text-gray-500" style={{ height: info }}>Divide aleatoriamente:</div>
+    <Shell type="randomizer" selected={selected} isStart={d.__start}>
+      <Handle type="target" position={Position.Left} className={`${HANDLE} !bg-gray-300`} />
+      <div className="px-4 pb-1.5 pt-0.5 text-xs text-gray-500" style={{ height: info }}>Divide aleatoriamente:</div>
       {branches.map((b, i) => (
-        <div key={b.id} className="flex items-center border-t border-gray-50 px-3 text-gray-700" style={{ height: ROW_H }}>
-          <span>🎲 Caminho {i + 1}</span>
-          <Handle type="source" id={`br-${b.id}`} position={Position.Right} style={{ top: HEADER_H + info + i * ROW_H + ROW_H / 2 }} />
+        <div key={b.id} className="relative flex items-center border-t border-gray-100 px-4 text-xs text-gray-700" style={{ height: ROW_H }}>
+          🎲 Caminho {i + 1}
+          <Handle type="source" id={`br-${b.id}`} position={Position.Right} className={`${HANDLE} !bg-fuchsia-400`} style={{ top: HEADER_H + info + i * ROW_H + ROW_H / 2 }} />
         </div>
       ))}
-    </div>
+    </Shell>
   )
 }
 
@@ -151,7 +176,12 @@ const nodeTypes = {
   randomizer: RandomizerNode,
 }
 
-const PALETTE: BlockType[] = ['message', 'image', 'menu', 'condition', 'action', 'delay', 'randomizer', 'flowjump', 'handoff', 'integration']
+// Paleta agrupada (barra lateral esquerda).
+const GROUPS: { title: string; blocks: BlockType[] }[] = [
+  { title: 'Conteúdo', blocks: ['message', 'image', 'menu'] },
+  { title: 'Lógica', blocks: ['condition', 'randomizer', 'delay', 'action'] },
+  { title: 'Conexão', blocks: ['flowjump', 'integration', 'handoff'] },
+]
 
 type FlowItem = { id: string; name: string; is_active: boolean }
 
@@ -162,7 +192,6 @@ export default function Construtor() {
   const [flowName, setFlowName] = useState('')
   const [allFlows, setAllFlows] = useState<FlowItem[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [showPalette, setShowPalette] = useState(false)
   const [status, setStatus] = useState<'loading' | 'ready' | 'saving' | 'saved'>('loading')
 
   useEffect(() => {
@@ -183,6 +212,16 @@ export default function Construtor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // O bloco de início é o único sem seta chegando — marca visualmente.
+  const startId = useMemo(() => {
+    const targets = new Set(edges.map((e) => e.target))
+    return nodes.find((n) => !targets.has(n.id))?.id
+  }, [nodes, edges])
+  const displayNodes = useMemo(
+    () => nodes.map((n) => ({ ...n, data: { ...(n.data as NodeData), __start: n.id === startId } })),
+    [nodes, startId]
+  )
+
   const onConnect = useCallback(
     (c: Connection) => {
       setEdges((eds) =>
@@ -197,9 +236,8 @@ export default function Construtor() {
 
   function addBlock(type: BlockType) {
     const id = `${type}_${Date.now()}`
-    setNodes((ns) => [...ns, { id, type, position: { x: 180 + Math.random() * 140, y: 120 + Math.random() * 160 }, data: newBlockData(type) }])
+    setNodes((ns) => [...ns, { id, type, position: { x: 220 + Math.random() * 160, y: 120 + Math.random() * 200 }, data: newBlockData(type) }])
     setSelectedId(id)
-    setShowPalette(false)
   }
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null
@@ -239,81 +277,100 @@ export default function Construtor() {
   const menuOptions = selData?.options ?? []
 
   return (
-    <div className="flex h-screen flex-col">
-      <header className="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-2">
+    <div className="flex h-screen flex-col bg-gray-50">
+      <header className="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-2.5">
         <a href="/fluxos" className="text-sm text-gray-400 hover:text-gray-700">← fluxos</a>
-        <h1 className="font-bold text-gray-900">{flowName || 'Construtor'}</h1>
-        <div className="relative">
-          <button onClick={() => setShowPalette((s) => !s)} className="rounded-lg bg-gray-900 px-3 py-1 text-sm font-medium text-white hover:bg-gray-700">
-            + Bloco
-          </button>
-          {showPalette && (
-            <div className="absolute left-0 top-9 z-10 w-52 rounded-xl border border-gray-200 bg-white p-1 shadow-lg">
-              {PALETTE.map((t) => {
-                const m = blockMeta(t)
-                return (
-                  <button key={t} onClick={() => addBlock(t)} className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm hover:bg-gray-50">
-                    <span>{m.emoji}</span>
-                    <span className={HEAD[t]}>{m.label}</span>
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
+        <h1 className="text-[15px] font-bold text-gray-900">{flowName || 'Construtor'}</h1>
+        <span className="text-xs text-gray-300">•</span>
+        <span className="text-xs text-gray-400">
+          {status === 'saving' ? 'salvando…' : status === 'saved' ? '✓ salvo' : 'arraste os blocos e ligue os pontinhos'}
+        </span>
         <div className="ml-auto flex items-center gap-3">
-          <a href="/simulador" target="_blank" className="text-sm font-medium text-gray-500 hover:text-gray-800">testar ↗</a>
-          <button onClick={save} disabled={status === 'saving' || !flowId} className="rounded-lg bg-emerald-500 px-4 py-1.5 text-sm font-semibold text-white hover:bg-emerald-600 disabled:opacity-50">
+          <a href="/simulador" target="_blank" className="rounded-lg px-3 py-1.5 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800">▶ testar</a>
+          <button onClick={save} disabled={status === 'saving' || !flowId} className="rounded-lg bg-emerald-500 px-5 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-600 disabled:opacity-50">
             {status === 'saving' ? 'salvando…' : status === 'saved' ? '✓ salvo' : 'Salvar'}
           </button>
         </div>
       </header>
 
       <div className="flex min-h-0 flex-1">
+        {/* PALETA DE BLOCOS (barra lateral) */}
+        <aside className="w-56 shrink-0 overflow-y-auto border-r border-gray-200 bg-white p-3">
+          <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Blocos</div>
+          {GROUPS.map((g) => (
+            <div key={g.title} className="mb-3">
+              <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300">{g.title}</div>
+              <div className="space-y-1">
+                {g.blocks.map((t) => {
+                  const m = blockMeta(t)
+                  const s = S[t]
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => addBlock(t)}
+                      className={`flex w-full items-center gap-2.5 rounded-xl border border-transparent bg-gray-50 px-2.5 py-2 text-left transition ${s.hover}`}
+                    >
+                      <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${s.chip}`}>{m.emoji}</span>
+                      <span className="text-[13px] font-medium text-gray-700">{m.label}</span>
+                      <span className="ml-auto text-gray-300">+</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </aside>
+
+        {/* CANVAS */}
         <div className="h-full flex-1">
           <ReactFlow
-            nodes={nodes}
+            nodes={displayNodes}
             edges={edges}
             nodeTypes={nodeTypes}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onNodeClick={(_, node) => setSelectedId(node.id)}
-            onPaneClick={() => { setSelectedId(null); setShowPalette(false) }}
+            onPaneClick={() => setSelectedId(null)}
+            defaultEdgeOptions={{ type: 'smoothstep', animated: true, style: { stroke: '#94a3b8', strokeWidth: 2 } }}
             fitView
             proOptions={{ hideAttribution: true }}
           >
-            <Background />
-            <Controls />
-            <MiniMap zoomable pannable />
+            <Background variant={BackgroundVariant.Dots} gap={22} size={1.5} color="#d1d5db" />
+            <Controls showInteractive={false} />
+            <MiniMap zoomable pannable className="!rounded-xl" />
           </ReactFlow>
         </div>
 
-        <aside className="w-80 overflow-y-auto border-l border-gray-200 bg-white p-4">
+        {/* PAINEL DE EDIÇÃO */}
+        <aside className="w-80 shrink-0 overflow-y-auto border-l border-gray-200 bg-white p-4">
           {!selected && (
-            <div className="text-sm text-gray-400">
-              <p className="mb-2 font-medium text-gray-600">Editando: {flowName || '—'}</p>
-              <ul className="list-disc space-y-1 pl-4">
-                <li>Use <b>+ Bloco</b> pra adicionar.</li>
-                <li>Ligue arrastando da bolinha da direita à esquerda do próximo bloco.</li>
-                <li>Clique num bloco pra editar aqui.</li>
-                <li><b>Salvar</b> e <b>testar</b> no simulador.</li>
-              </ul>
-              <p className="mt-3 text-xs">O bloco sem seta chegando é o <b>início</b>.</p>
+            <div className="text-sm text-gray-500">
+              <p className="mb-3 font-semibold text-gray-700">Editando: {flowName || '—'}</p>
+              <div className="space-y-2 rounded-xl bg-gray-50 p-3 text-[13px]">
+                <p>👈 Clique num <b>bloco</b> da esquerda pra adicionar.</p>
+                <p>🔗 Ligue arrastando do <b>pontinho da direita</b> de um bloco até a <b>esquerda</b> do próximo.</p>
+                <p>✏️ Clique num bloco no quadro pra editar aqui.</p>
+                <p>💾 <b>Salvar</b> e testar em <b>▶ testar</b>.</p>
+              </div>
+              <p className="mt-3 rounded-lg bg-amber-50 p-2.5 text-[12px] text-amber-700">💡 Depois de todo <b>Menu</b>, ligue um bloco <b>⚡ Ação → Reiniciar automação</b> pra encerrar após o clique (evita spam e risco de ban).</p>
             </div>
           )}
 
           {selected && selType && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-gray-700">{blockMeta(selType).emoji} {blockMeta(selType).label}</span>
-                <button onClick={() => removeNode(selected.id)} className="text-xs font-medium text-red-500 hover:underline">excluir</button>
+                <span className={`flex items-center gap-1.5 text-sm font-semibold ${S[selType].label}`}>
+                  <span className={`flex h-6 w-6 items-center justify-center rounded-lg text-sm ${S[selType].chip}`}>{blockMeta(selType).emoji}</span>
+                  {blockMeta(selType).label}
+                </span>
+                <button onClick={() => removeNode(selected.id)} className="rounded-lg px-2 py-1 text-xs font-medium text-red-500 hover:bg-red-50">excluir</button>
               </div>
 
               {(selType === 'message' || selType === 'handoff') && (
                 <label className="block">
                   <span className="text-xs font-medium text-gray-500">Texto</span>
-                  <textarea value={selData?.text ?? ''} onChange={(e) => updateData(selected.id, { text: e.target.value })} rows={4} className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm outline-none focus:border-emerald-500" />
+                  <textarea value={selData?.text ?? ''} onChange={(e) => updateData(selected.id, { text: e.target.value })} rows={5} className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm outline-none focus:border-emerald-500" />
                 </label>
               )}
 
@@ -326,10 +383,11 @@ export default function Construtor() {
                   <div>
                     <span className="text-xs font-medium text-gray-500">Opções</span>
                     <div className="mt-1 space-y-2">
-                      {menuOptions.map((o) => {
+                      {menuOptions.map((o, i) => {
                         const connected = edges.some((e) => e.source === selected.id && e.sourceHandle === `opt-${o.id}`)
                         return (
                           <div key={o.id} className="flex items-center gap-2">
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-indigo-100 text-[10px] font-bold text-indigo-700">{i + 1}</span>
                             <input value={o.label} onChange={(e) => updateData(selected.id, { options: menuOptions.map((x) => (x.id === o.id ? { ...x, label: e.target.value } : x)) })} className="flex-1 rounded-lg border border-gray-300 px-2 py-1 text-sm outline-none focus:border-indigo-500" />
                             <span title={connected ? 'ligada' : 'sem destino'} className={connected ? 'text-emerald-500' : 'text-gray-300'}>●</span>
                             <button onClick={() => { updateData(selected.id, { options: menuOptions.filter((x) => x.id !== o.id) }); removeHandleEdges(selected.id, `opt-${o.id}`) }} className="text-xs text-gray-400 hover:text-red-500">✕</button>
@@ -339,6 +397,7 @@ export default function Construtor() {
                     </div>
                     <button onClick={() => updateData(selected.id, { options: [...menuOptions, { id: crypto.randomUUID().slice(0, 6), label: `Opção ${menuOptions.length + 1}` } as MenuOption] })} className="mt-2 text-sm font-medium text-indigo-600 hover:underline">+ adicionar opção</button>
                   </div>
+                  <p className="rounded-lg bg-amber-50 p-2.5 text-[12px] text-amber-700">💡 Ligue um bloco <b>⚡ Ação → Reiniciar automação</b> no fim de cada opção pra encerrar após o clique (anti-spam).</p>
                 </>
               )}
 
@@ -346,9 +405,10 @@ export default function Construtor() {
                 <label className="block">
                   <span className="text-xs font-medium text-gray-500">O que fazer</span>
                   <select value={selData?.action ?? 'restart'} onChange={(e) => updateData(selected.id, { action: e.target.value as 'restart' | 'end' })} className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm">
-                    <option value="restart">Reiniciar o fluxo</option>
-                    <option value="end">Encerrar a conversa</option>
+                    <option value="restart">🔄 Reiniciar automação (encerra após o clique)</option>
+                    <option value="end">🛑 Encerrar a conversa</option>
                   </select>
+                  <p className="mt-1 text-[11px] text-gray-400">A automação <b>para</b> depois deste bloco — o paciente pode clicar à vontade que não vira spam. O atendente assume pelo inbox.</p>
                 </label>
               )}
 
@@ -358,7 +418,7 @@ export default function Construtor() {
                     <span className="text-xs font-medium text-gray-500">Se a mensagem contém…</span>
                     <input value={selData?.keyword ?? ''} onChange={(e) => updateData(selected.id, { keyword: e.target.value })} placeholder="ex: convênio" className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm outline-none focus:border-sky-500" />
                   </label>
-                  <p className="text-[11px] text-gray-400">Saída <b className="text-emerald-600">✅ sim</b> se conter a palavra; <b className="text-rose-600">🚫 não</b> caso contrário. Ligue as duas no canvas.</p>
+                  <p className="text-[11px] text-gray-400">Saída <b className="text-emerald-600">✅ sim</b> se conter a palavra; <b className="text-rose-600">🚫 não</b> caso contrário. Ligue as duas no quadro.</p>
                 </>
               )}
 

@@ -91,9 +91,11 @@ function runFrom(
         current = node.next ?? null
         break
       case 'action':
-        if (node.action === 'end') return { replies, state: { flowId, currentNode: null, status: 'done' } }
-        current = flow.start // 'restart' volta ao início do fluxo atual
-        break
+        // Tanto "Encerrar" quanto "Reiniciar automação" PARAM a automação aqui
+        // (não seguem em loop). Isso evita spam quando o paciente clica várias
+        // vezes no menu e o risco de ban. A sessão fica 'done'; o atendente
+        // assume pelo inbox e a re-engajamento (12h) reinicia o fluxo depois.
+        return { replies, state: { flowId, currentNode: null, status: 'done' } }
       case 'condition': {
         const hit = node.keyword.trim().length > 0 &&
           lastInput.toLowerCase().includes(node.keyword.trim().toLowerCase())
