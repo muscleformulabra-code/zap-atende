@@ -80,7 +80,7 @@ export default function Inbox() {
 
   useEffect(() => {
     loadConvs()
-    const t = setInterval(loadConvs, 5000)
+    const t = setInterval(loadConvs, 2500)
     return () => clearInterval(t)
   }, [loadConvs])
 
@@ -88,7 +88,7 @@ export default function Inbox() {
     if (!sel) return
     loadMsgs(sel.contact_id)
     loadCard(sel.contact_id)
-    const t = setInterval(() => loadMsgs(sel.contact_id), 4000)
+    const t = setInterval(() => loadMsgs(sel.contact_id), 1500)
     return () => clearInterval(t)
   }, [sel, loadMsgs, loadCard])
 
