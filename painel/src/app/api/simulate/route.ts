@@ -8,8 +8,13 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}))
   const state: SessionState | null = body?.state ?? null
   const input: string = body?.input ?? ''
+  const startFlowId: string | null = body?.startFlowId ?? null
 
   const { flows, entryId } = await getFlowsBundle()
-  const result = state ? advance(flows, state, input) : startSession(flows, entryId)
+  // startFlowId = dispara um fluxo específico (resposta padrão / mídia).
+  // Sem ele: avança a sessão, ou começa pelo fluxo de entrada (boas-vindas).
+  const result = state
+    ? advance(flows, state, input)
+    : startSession(flows, startFlowId && flows[startFlowId] ? startFlowId : entryId)
   return NextResponse.json(result)
 }

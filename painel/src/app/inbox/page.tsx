@@ -1,24 +1,22 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import Avatar from '@/components/avatar'
 
 type Conversa = {
   contact_id: string
   name: string | null
   phone: string | null
+  avatar_url: string | null
   last_text: string | null
   last_from_me: boolean | null
   last_sent_at: string | null
   status: string
 }
 type Msg = { id: string; from_me: boolean; text: string | null; sent_at: string | null }
-type Card = { id: string; name: string | null; phone: string | null; jid: string; created_at: string; status: string }
+type Card = { id: string; name: string | null; phone: string | null; jid: string; avatar_url: string | null; created_at: string; status: string }
 type FlowItem = { id: string; name: string; is_active?: boolean }
 
-function initials(name: string | null, phone: string | null) {
-  if (name?.trim()) return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('')
-  return (phone ?? '?').slice(-2)
-}
 function hora(iso: string | null) {
   if (!iso) return ''
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
@@ -202,9 +200,9 @@ export default function Inbox() {
             const active = sel?.contact_id === c.contact_id
             return (
               <button key={c.contact_id} onClick={() => selecionar(c)} className={`flex w-full items-center gap-3 border-b border-gray-50 px-3 py-3 text-left hover:bg-gray-50 ${active ? 'bg-emerald-50' : ''}`}>
-                <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-sm font-semibold text-white">
-                  {initials(c.name, c.phone)}
-                  {c.status === 'done' && <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white text-[9px]">✅</span>}
+                <div className="relative shrink-0">
+                  <Avatar name={c.name} phone={c.phone} src={c.avatar_url} className="h-10 w-10 text-sm" />
+                  {c.status === 'done' && <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white text-[9px] shadow">✅</span>}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1">
@@ -227,7 +225,7 @@ export default function Inbox() {
         ) : (
           <>
             <header className="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-xs font-semibold text-white">{initials(sel.name, sel.phone)}</div>
+              <Avatar name={sel.name} phone={sel.phone} src={card?.avatar_url} className="h-9 w-9 text-xs" />
               <div>
                 <div className="text-sm font-medium text-gray-800">{sel.name?.trim() || sel.phone}</div>
                 <div className="text-xs text-gray-400">{sel.phone}</div>
@@ -310,7 +308,7 @@ export default function Inbox() {
       {sel && (
         <aside className="w-72 shrink-0 overflow-y-auto border-l border-gray-200 bg-white">
           <div className="flex flex-col items-center border-b border-gray-100 px-4 py-5">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-xl font-semibold text-white">{initials(sel.name, sel.phone)}</div>
+            <Avatar name={sel.name} phone={sel.phone} src={card?.avatar_url} className="h-16 w-16 text-xl" />
             <div className="mt-2 text-center text-base font-semibold text-gray-800">{sel.name?.trim() || sel.phone || 'Sem nome'}</div>
             <span className={`mt-2 rounded-full px-3 py-1 text-xs font-medium ${STATUS[curStatus]?.badge ?? STATUS.active.badge}`}>{STATUS[curStatus]?.label ?? STATUS.active.label}</span>
           </div>

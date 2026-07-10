@@ -56,11 +56,11 @@ function isWithinHours(hours) {
   return hhmm >= (hours.start || '00:00') && hhmm <= (hours.end || '23:59')
 }
 
-async function callBot(state, input) {
+async function callBot(state, input, startFlowId = null) {
   const res = await fetch(`${PAINEL_URL}/api/simulate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ state, input }),
+    body: JSON.stringify({ state, input, startFlowId }),
   })
   if (!res.ok) throw new Error(`bot ${res.status}`)
   return res.json() // { replies: [{text}], state }
@@ -76,10 +76,26 @@ async function callBot(state, input) {
 //  - Fluxo ativo → avança normalmente.
 // Em TODOS os casos de mensagem nova, a conversa deixa de ficar "concluída"
 // (reabre) — quem estava done vira handoff/ativo.
-async function handleIncoming(contactId, text, reengageHours = 12) {
+// opts: { reengageHours, isMedia, defaultFlowId, mediaFlowId }
+//  - Fluxo de boas-vindas = fluxo is_active (usado no 1º contato / faz tempo).
+//  - Fluxo padrão de mídia (mediaFlowId) = quando o paciente manda anexo.
+//  - Fluxo de resposta padrão (defaultFlowId) = quando um contato já concluído
+//    volta a escrever (o "2º contato").
+async function handleIncoming(contactId, text, opts = {}) {
+  const { reengageHours = 12, isMedia = false, defaultFlowId = null, mediaFlowId = null } =
+    typeof opts === 'number' ? { reengageHours: opts } : opts
+
   const session = await getSession(contactId)
   const age = session && session.updatedAt ? Date.now() - Date.parse(session.updatedAt) : Infinity
   const stale = age > reengageHours * 3600 * 1000
+
+  // Anexo de mídia → fluxo padrão de mídia (se configurado). Não interrompe um
+  // fluxo ativo que esteja aguardando (aí a mídia é tratada como resposta).
+  if (isMedia && mediaFlowId && (!session || session.status !== 'active')) {
+    const result = await callBot(null, text, mediaFlowId)
+    await saveSession(contactId, result.state)
+    return result
+  }
 
   // Sem sessão OU voltou depois de muito tempo → boas-vindas (menu).
   if (!session || stale) {
@@ -88,8 +104,14 @@ async function handleIncoming(contactId, text, reengageHours = 12) {
     return result
   }
 
-  // Concluído há pouco tempo → 2º contato: reabre pro atendente, sem menu.
+  // Concluído há pouco tempo → 2º contato: roda o fluxo de resposta padrão
+  // (que normalmente só abre o atendimento). Sem ele, apenas reabre em silêncio.
   if (session.status === 'done') {
+    if (defaultFlowId) {
+      const result = await callBot(null, text, defaultFlowId)
+      await saveSession(contactId, result.state)
+      return result
+    }
     await saveSession(contactId, { flowId: session.flowId, currentNode: null, status: 'handoff' })
     return { replies: [] }
   }

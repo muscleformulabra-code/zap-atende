@@ -58,7 +58,21 @@ async function insertMessage({ contactId, jid, fromMe, text, waMessageId, sentAt
   }
 }
 
+// Atualiza a foto de perfil do contato (guarda a URL + quando foi buscada).
+// Tolerante: se a coluna ainda não existir, só ignora.
+async function updateAvatar(contactId, avatarUrl) {
+  try {
+    await fetch(`${REST}/contacts?id=eq.${contactId}`, {
+      method: 'PATCH',
+      headers: { ...baseHeaders, Prefer: 'return=minimal' },
+      body: JSON.stringify({ avatar_url: avatarUrl || null, avatar_updated_at: new Date().toISOString() }),
+    })
+  } catch {
+    /* coluna avatar_url ainda não migrada — ignora */
+  }
+}
+
 // Impressão digital da chave (sem expor o segredo) pra diagnóstico.
 const keyInfo = { len: KEY.length, head: KEY.slice(0, 6), tail: KEY.slice(-4) }
 
-module.exports = { upsertContact, insertMessage, keyInfo }
+module.exports = { upsertContact, insertMessage, updateAvatar, keyInfo }

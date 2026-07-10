@@ -2,15 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
+import Avatar from '@/components/avatar'
 
-type Contact = { id: string; name: string | null; phone: string | null; jid: string; created_at: string; tags: string[] }
+type Contact = { id: string; name: string | null; phone: string | null; jid: string; created_at: string; tags: string[]; avatar_url: string | null }
 type TagCount = { tag: string; count: number }
 type ParsedRow = { name?: string; phone: string; tags?: string[] }
 
-function initials(name: string | null, phone: string | null) {
-  if (name?.trim()) return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('')
-  return (phone ?? '?').slice(-2)
-}
 function data(iso: string) {
   return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
@@ -172,7 +169,7 @@ export default function Contatos() {
                     <td className="px-4 py-3"><input type="checkbox" className="h-4 w-4 rounded border-gray-300 accent-emerald-500" /></td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-[11px] font-semibold text-white">{initials(c.name, c.phone)}</div>
+                        <Avatar name={c.name} phone={c.phone} src={c.avatar_url} className="h-9 w-9 text-[11px]" />
                         <div className="min-w-0">
                           <div className="truncate font-medium text-gray-800">{c.name?.trim() || <span className="text-gray-400">Sem nome</span>}</div>
                           {c.tags.length > 0 && (

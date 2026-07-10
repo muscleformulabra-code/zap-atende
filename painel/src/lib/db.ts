@@ -38,6 +38,7 @@ export type Conversation = {
   jid: string
   phone: string | null
   name: string | null
+  avatar_url: string | null
   created_at: string
   last_text: string | null
   last_from_me: boolean | null
@@ -166,12 +167,13 @@ export type ContactCard = {
   name: string | null
   phone: string | null
   jid: string
+  avatar_url: string | null
   created_at: string
   status: string
 }
 
 // ── Página de Contatos (lista, busca, criar, importar) ──
-export type ContactRow = { id: string; name: string | null; phone: string | null; jid: string; created_at: string; tags: string[] }
+export type ContactRow = { id: string; name: string | null; phone: string | null; jid: string; created_at: string; tags: string[]; avatar_url: string | null }
 
 function normPhone(phone: string): string {
   return (phone || '').replace(/\D/g, '')
@@ -185,7 +187,7 @@ function normTags(tags?: string[] | null): string[] {
 }
 
 export async function listContacts(search?: string, tag?: string, limit = 1000): Promise<ContactRow[]> {
-  let path = `contacts?select=id,name,phone,jid,created_at,tags&order=created_at.desc&limit=${limit}`
+  let path = `contacts?select=id,name,phone,jid,created_at,tags,avatar_url&order=created_at.desc&limit=${limit}`
   if (search && search.trim()) {
     const s = encodeURIComponent(search.trim())
     path += `&or=(name.ilike.*${s}*,phone.ilike.*${s}*)`
@@ -196,12 +198,12 @@ export async function listContacts(search?: string, tag?: string, limit = 1000):
   }
   try {
     const rows = await (await rest(path)).json()
-    return (rows as ContactRow[]).map((r) => ({ ...r, tags: r.tags ?? [] }))
+    return (rows as ContactRow[]).map((r) => ({ ...r, tags: r.tags ?? [], avatar_url: r.avatar_url ?? null }))
   } catch {
-    // Coluna tags ainda não criada → busca sem ela.
-    const fallback = path.replace(',tags', '').replace(/&tags=cs\.[^&]*/, '')
+    // Colunas tags/avatar_url ainda não criadas → busca só o básico.
+    const fallback = `contacts?select=id,name,phone,jid,created_at&order=created_at.desc&limit=${limit}` + (search && search.trim() ? `&or=(name.ilike.*${encodeURIComponent(search.trim())}*,phone.ilike.*${encodeURIComponent(search.trim())}*)` : '')
     const rows = await (await rest(fallback)).json()
-    return (rows as Omit<ContactRow, 'tags'>[]).map((r) => ({ ...r, tags: [] }))
+    return (rows as Omit<ContactRow, 'tags' | 'avatar_url'>[]).map((r) => ({ ...r, tags: [], avatar_url: null }))
   }
 }
 
@@ -270,11 +272,11 @@ export async function deleteContact(id: string): Promise<void> {
 }
 
 export async function getContactCard(contactId: string): Promise<ContactCard | null> {
-  const rows = await (await rest(`contacts?id=eq.${contactId}&select=id,name,phone,jid,created_at`)).json()
+  const rows = await (await rest(`contacts?id=eq.${contactId}&select=*`)).json()
   const contact = rows[0]
   if (!contact) return null
   const sess = await (await rest(`flow_sessions?contact_id=eq.${contactId}&select=status`)).json()
-  return { ...contact, status: sess[0]?.status ?? 'active' }
+  return { ...contact, avatar_url: contact.avatar_url ?? null, status: sess[0]?.status ?? 'active' }
 }
 
 export type Stats = {

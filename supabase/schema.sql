@@ -14,6 +14,8 @@ create table if not exists contacts (
 );
 alter table contacts add column if not exists tags text[] default '{}';
 create index if not exists idx_contacts_tags on contacts using gin (tags);
+alter table contacts add column if not exists avatar_url text;            -- foto de perfil do WhatsApp (quando a privacidade permite)
+alter table contacts add column if not exists avatar_updated_at timestamptz;
 
 -- MENSAGENS: histórico de cada conversa.
 create table if not exists messages (
@@ -41,6 +43,7 @@ select
   c.jid,
   c.phone,
   c.name,
+  c.avatar_url,
   c.created_at,
   m.text       as last_text,
   m.from_me    as last_from_me,
@@ -94,6 +97,9 @@ create table if not exists settings (
 );
 insert into settings (id) values (1) on conflict (id) do nothing;
 alter table settings add column if not exists reengage_hours int not null default 12;
+-- Fluxos padrões (base): resposta padrão e mídia. O "boas-vindas" é o fluxo is_active.
+alter table settings add column if not exists default_flow_id uuid references flows(id) on delete set null;
+alter table settings add column if not exists media_flow_id uuid references flows(id) on delete set null;
 
 -- ─────────────────────────────────────────────────────────────
 --  OUTBOX: mensagens que o painel (inbox) quer enviar pelo WhatsApp.

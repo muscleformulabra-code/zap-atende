@@ -18,7 +18,7 @@ const http = require('http')
 const fs = require('fs')
 const pino = require('pino')
 
-const { upsertContact, insertMessage, keyInfo } = require('./supabase')
+const { upsertContact, insertMessage, updateAvatar, keyInfo } = require('./supabase')
 const BAILEYS_VERSION = (() => { try { return require('@whiskeysockets/baileys/package.json').version } catch { return '?' } })()
 const { handleIncoming, getSettings, isWithinHours } = require('./bot')
 
@@ -45,6 +45,12 @@ async function botSend(sock, target, reply, settings) {
   } else {
     await sock.sendMessage(target, { text: r.text })
   }
+}
+
+// A mensagem é um anexo de mídia? (foto, vídeo, áudio, documento, figurinha)
+function isMediaMsg(msg) {
+  const m = msg.message || {}
+  return !!(m.imageMessage || m.videoMessage || m.audioMessage || m.documentMessage || m.stickerMessage)
 }
 
 // Extrai o texto de uma mensagem (ou um rótulo para mídia).
@@ -152,6 +158,16 @@ async function start() {
           sentAt,
         })
         diag.saved++
+
+        // Foto de perfil (só quando o paciente escreve). Throttle de 12h e
+        // respeita a privacidade dele (profilePictureUrl lança se estiver oculta).
+        if (!fromMe) {
+          const last = contact.avatar_updated_at ? Date.parse(contact.avatar_updated_at) : 0
+          if (Date.now() - last > 12 * 3600 * 1000) {
+            const url = await sock.profilePictureUrl(rawJid, 'image').catch(() => null)
+            await updateAvatar(contact.id, url)
+          }
+        }
         diag.lastFrom = name || phone
         diag.lastText = text
         const arrow = fromMe ? 'nós →' : '→'
@@ -166,8 +182,12 @@ async function start() {
               diag.botPath = 'bot_desligado'
             } else {
               // Sem mensagem de "fora de horário": o bot responde/roteia sempre.
-              const reengage = settings?.reengage_hours ?? 12
-              const { replies } = await handleIncoming(contact.id, text, reengage)
+              const { replies } = await handleIncoming(contact.id, text, {
+                reengageHours: settings?.reengage_hours ?? 12,
+                isMedia: isMediaMsg(msg),
+                defaultFlowId: settings?.default_flow_id ?? null,
+                mediaFlowId: settings?.media_flow_id ?? null,
+              })
               diag.botPath = 'fluxo'
               diag.lastReplyCount = replies.length
               for (const r of replies) {

@@ -22,6 +22,8 @@ export type Settings = {
   off_hours_message: string
   min_delay_ms: number
   max_delay_ms: number
+  default_flow_id: string | null // fluxo de resposta padrão
+  media_flow_id: string | null   // fluxo padrão para mídia
 }
 
 export async function getSettings(): Promise<Settings> {
@@ -32,11 +34,23 @@ export async function getSettings(): Promise<Settings> {
 }
 
 export async function saveSettings(patch: Partial<Settings>): Promise<void> {
-  const res = await fetch(`${REST}/settings?id=eq.1`, {
-    method: 'PATCH',
-    headers: { ...H, Prefer: 'return=minimal' },
-    body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
-    cache: 'no-store',
-  })
-  if (!res.ok) throw new Error(`saveSettings ${res.status}: ${await res.text()}`)
+  const put = async (body: Record<string, unknown>) =>
+    fetch(`${REST}/settings?id=eq.1`, {
+      method: 'PATCH',
+      headers: { ...H, Prefer: 'return=minimal' },
+      body: JSON.stringify({ ...body, updated_at: new Date().toISOString() }),
+      cache: 'no-store',
+    })
+
+  let res = await put(patch)
+  if (!res.ok) {
+    // Colunas default_flow_id/media_flow_id ainda não migradas → salva sem elas.
+    const rest = { ...patch }
+    delete (rest as Partial<Settings>).default_flow_id
+    delete (rest as Partial<Settings>).media_flow_id
+    if (Object.keys(rest).length > 0) {
+      res = await put(rest)
+      if (!res.ok) throw new Error(`saveSettings ${res.status}: ${await res.text()}`)
+    }
+  }
 }
