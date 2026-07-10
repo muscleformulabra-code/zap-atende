@@ -9,7 +9,7 @@ export type FlowNode =
   | { type: 'message'; text: string; delayMs?: number; next?: string }
   | { type: 'menu'; text: string; options: { label: string; next: string }[]; invalidText?: string }
   | { type: 'handoff'; text?: string }
-  | { type: 'action'; action: 'restart' | 'end' }
+  | { type: 'action'; action: 'restart' | 'end'; next?: string }
   | { type: 'condition'; keyword: string; yes?: string; no?: string }
   | { type: 'randomizer'; branches: { next?: string }[] }
   | { type: 'delay'; seconds: number; next?: string }
@@ -91,10 +91,15 @@ function runFrom(
         current = node.next ?? null
         break
       case 'action':
-        // Tanto "Encerrar" quanto "Reiniciar automação" PARAM a automação aqui
-        // (não seguem em loop). Isso evita spam quando o paciente clica várias
-        // vezes no menu e o risco de ban. A sessão fica 'done'; o atendente
-        // assume pelo inbox e a re-engajamento (12h) reinicia o fluxo depois.
+        // "Reiniciar automação" = re-arma e SEGUE pro próximo bloco (igual ao
+        // BotConversa) — usado antes de menus. Se não tiver próximo, encerra.
+        if (node.action === 'restart') {
+          current = node.next ?? null
+          break
+        }
+        // "Encerrar atendimento" = PARA a automação (anti-spam / evita ban).
+        // A sessão fica 'done'; o atendente assume e o re-engajamento (12h)
+        // reinicia depois.
         return { replies, state: { flowId, currentNode: null, status: 'done' } }
       case 'condition': {
         const hit = node.keyword.trim().length > 0 &&

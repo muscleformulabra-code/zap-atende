@@ -98,7 +98,7 @@ export function graphToFlow(graph: FlowGraph): Flow {
         nodes[n.id] = { type: 'handoff', text: d.text }
         break
       case 'action':
-        nodes[n.id] = { type: 'action', action: d.action ?? 'restart' }
+        nodes[n.id] = { type: 'action', action: d.action ?? 'restart', next: edgeTarget(graph.edges, n.id) }
         break
       case 'condition':
         nodes[n.id] = {
