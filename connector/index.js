@@ -88,6 +88,15 @@ function extractText(msg) {
 }
 
 async function start() {
+  // Fecha o socket anterior antes de criar outro — senão, no ciclo de
+  // reconexão (esperando o QR ser escaneado), os sockets se acumulam e estouram
+  // a memória do Railway, derrubando o processo.
+  if (sock) {
+    try { sock.ev.removeAllListeners() } catch {}
+    try { sock.end(undefined) } catch {}
+    sock = null
+  }
+
   // Salva a sessão do WhatsApp na pasta ./auth (não precisa reescanear toda vez).
   const { state, saveCreds } = await useMultiFileAuthState('./auth')
   const { version } = await fetchLatestBaileysVersion()
@@ -115,7 +124,7 @@ async function start() {
     auth: state,
     logger: pino({ level: 'silent' }),
     browser: ['Ricco Chat', 'Chrome', '1.0.0'],
-    syncFullHistory: true, // puxa o histórico do WhatsApp ao conectar
+    syncFullHistory: false, // histórico recente (o full estoura memória no Railway)
     agent,        // WebSocket do WhatsApp pelo proxy
     fetchAgent: agent, // downloads de mídia pelo proxy
   })

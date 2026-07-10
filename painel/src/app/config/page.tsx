@@ -128,35 +128,41 @@ export default function Config() {
   )
 }
 
-// ── Seção: Conexão do WhatsApp (QR code + status ao vivo) ──
+// ── Seção: Conexão do WhatsApp (QR code que se renova sozinho + status ao vivo) ──
 function WhatsAppConnection() {
   const [wa, setWa] = useState<boolean | null>(null) // conectado?
   const [qrTick, setQrTick] = useState(0)
   const [hasQr, setHasQr] = useState(false)
-  const [generating, setGenerating] = useState(false)
+  const [resetting, setResetting] = useState(false)
 
+  // Status ao vivo (a cada 4s)
   useEffect(() => {
     let alive = true
     const poll = () =>
       fetch('/api/status')
         .then((r) => r.json())
-        .then((d) => { if (!alive) return; setWa(!!d.whatsapp); if (d.whatsapp) setGenerating(false) })
+        .then((d) => { if (alive) setWa(!!d.whatsapp) })
         .catch(() => alive && setWa(false))
     poll()
-    const t = setInterval(poll, 5000)
+    const t = setInterval(poll, 4000)
     return () => { alive = false; clearInterval(t) }
   }, [])
 
+  // Enquanto desconectado, busca um QR novo a cada 4s (o conector gera um QR
+  // fresco sozinho; aqui a gente só fica pegando o mais recente).
   useEffect(() => {
-    if (wa) return // conectado: não precisa de QR
-    const t = setInterval(() => setQrTick((x) => x + 1), 6000)
+    if (wa !== false) return
+    const t = setInterval(() => setQrTick((x) => x + 1), 4000)
     return () => clearInterval(t)
   }, [wa])
 
-  async function gerar() {
-    setGenerating(true); setHasQr(false); setWa(false)
+  // Reinicia a sessão do conector (só pra casos travados). Normalmente NÃO é
+  // preciso — o QR aparece e se renova sozinho.
+  async function reiniciar() {
+    if (!confirm('Reiniciar a conexão? Use só se o QR não aparecer. Leva ~40s.')) return
+    setResetting(true); setHasQr(false)
     await fetch('/api/connect', { method: 'POST' }).catch(() => {})
-    setTimeout(() => setQrTick((x) => x + 1), 4000)
+    setTimeout(() => setResetting(false), 42000)
   }
 
   const dot = wa == null ? 'bg-gray-300' : wa ? 'bg-emerald-500' : 'bg-red-400'
@@ -175,9 +181,9 @@ function WhatsAppConnection() {
             <div className={`text-xs font-medium ${wa ? 'text-emerald-600' : wa === false ? 'text-red-500' : 'text-gray-400'}`}>{label}</div>
           </div>
         </div>
-        {wa === false && !generating && (
-          <button onClick={gerar} className="rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-emerald-200 hover:from-emerald-600 hover:to-teal-600">
-            Gerar QR Code
+        {wa === false && (
+          <button onClick={reiniciar} disabled={resetting} className="rounded-xl border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+            {resetting ? 'Reiniciando…' : '↻ Reiniciar conexão'}
           </button>
         )}
       </div>
@@ -186,7 +192,7 @@ function WhatsAppConnection() {
         <div className="mt-4 flex items-center gap-3 rounded-xl bg-emerald-50 px-4 py-3">
           <span className="text-xl">✅</span>
           <div className="flex-1 text-sm text-emerald-800">Tudo certo! O robô está conectado e recebendo/enviando mensagens.</div>
-          <button onClick={() => { if (confirm('Isso desconecta o WhatsApp atual e gera um QR novo. Continuar?')) gerar() }} className="rounded-lg border border-emerald-300 px-3 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-100">
+          <button onClick={reiniciar} className="rounded-lg border border-emerald-300 px-3 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-100">
             Reconectar
           </button>
         </div>
@@ -194,29 +200,25 @@ function WhatsAppConnection() {
 
       {wa === false && (
         <div className="mt-4 flex flex-col items-center rounded-xl border border-dashed border-gray-200 bg-gray-50/60 p-5 text-center">
-          {generating && !hasQr ? (
+          {/* O QR fica sempre no DOM tentando carregar; a cada 4s pega o mais recente. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`/api/qr?t=${qrTick}`}
+            alt="QR code do WhatsApp"
+            onLoad={() => setHasQr(true)}
+            onError={() => setHasQr(false)}
+            className={`h-56 w-56 rounded-xl bg-white p-2 shadow-sm ${hasQr ? '' : 'hidden'}`}
+          />
+          {!hasQr && (
             <div className="py-8 text-sm text-gray-500">
               <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-gray-200 border-t-emerald-500" />
-              Gerando QR novo… aguarde ~40 segundos.
+              {resetting ? 'Reiniciando a conexão… (~40s)' : 'Gerando o QR… aparece em instantes.'}
             </div>
-          ) : (
-            <>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`/api/qr?t=${qrTick}`}
-                alt="QR code do WhatsApp"
-                onLoad={() => setHasQr(true)}
-                onError={() => setHasQr(false)}
-                className={`h-56 w-56 rounded-xl bg-white p-2 shadow-sm ${hasQr ? '' : 'hidden'}`}
-              />
-              {hasQr ? (
-                <p className="mt-3 max-w-xs text-sm text-gray-600">
-                  📱 No celular do <b>número do bot</b>: WhatsApp → <b>Aparelhos conectados</b> → <b>Conectar um aparelho</b> → escaneie o código acima.
-                </p>
-              ) : (
-                <p className="py-8 text-sm text-gray-500">Clique em <b>Gerar QR Code</b> para conectar o WhatsApp.</p>
-              )}
-            </>
+          )}
+          {hasQr && (
+            <p className="mt-3 max-w-xs text-sm text-gray-600">
+              📱 No celular do <b>número do bot</b>: WhatsApp → <b>Aparelhos conectados</b> → <b>Conectar um aparelho</b> → escaneie o código. Ele se renova sozinho.
+            </p>
           )}
         </div>
       )}
