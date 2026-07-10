@@ -72,7 +72,21 @@ async function updateAvatar(contactId, avatarUrl) {
   }
 }
 
+// Marca a sessão do contato como 'done' (usado no histórico → vai pra Concluídas).
+// updatedAt = hora da última mensagem, pra o re-engajamento (12h) funcionar certo.
+async function setSessionDone(contactId, updatedAt) {
+  try {
+    await fetch(`${REST}/flow_sessions?on_conflict=contact_id`, {
+      method: 'POST',
+      headers: { ...baseHeaders, Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ contact_id: contactId, status: 'done', updated_at: updatedAt || new Date().toISOString() }),
+    })
+  } catch {
+    /* ignora */
+  }
+}
+
 // Impressão digital da chave (sem expor o segredo) pra diagnóstico.
 const keyInfo = { len: KEY.length, head: KEY.slice(0, 6), tail: KEY.slice(-4) }
 
-module.exports = { upsertContact, insertMessage, updateAvatar, keyInfo }
+module.exports = { upsertContact, insertMessage, updateAvatar, setSessionDone, keyInfo }

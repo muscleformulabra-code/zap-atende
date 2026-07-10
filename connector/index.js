@@ -18,7 +18,7 @@ const http = require('http')
 const fs = require('fs')
 const pino = require('pino')
 
-const { upsertContact, insertMessage, updateAvatar, keyInfo } = require('./supabase')
+const { upsertContact, insertMessage, updateAvatar, setSessionDone, keyInfo } = require('./supabase')
 const BAILEYS_VERSION = (() => { try { return require('@whiskeysockets/baileys/package.json').version } catch { return '?' } })()
 const { handleIncoming, getSettings, isWithinHours } = require('./bot')
 
@@ -115,6 +115,7 @@ async function start() {
     auth: state,
     logger: pino({ level: 'silent' }),
     browser: ['Ricco Chat', 'Chrome', '1.0.0'],
+    syncFullHistory: true, // puxa o histórico do WhatsApp ao conectar
     agent,        // WebSocket do WhatsApp pelo proxy
     fetchAgent: agent, // downloads de mídia pelo proxy
   })
@@ -159,6 +160,38 @@ async function start() {
         console.log('🔄 Conexão caiu, reconectando em 5s...')
         setTimeout(() => { reconnecting = false; start() }, 5000)
       }
+    }
+  })
+
+  // Histórico do WhatsApp (chega em blocos ao conectar). Salva contatos e
+  // mensagens antigas e marca as conversas como CONCLUÍDAS (vão pra aba
+  // Concluídas, sem poluir "Abertas"). Uma nova mensagem depois reabre.
+  sock.ev.on('messaging-history.set', async ({ contacts = [], messages = [] }) => {
+    try {
+      const nameByJid = {}
+      for (const c of contacts) if (c.id && (c.name || c.notify)) nameByJid[c.id] = c.name || c.notify
+      const lastByContact = {} // contact.id -> última hora (pra marcar done com updated_at real)
+      let saved = 0
+      for (const msg of messages) {
+        const rawJid = msg.key?.remoteJid
+        if (!rawJid || rawJid.endsWith('@g.us') || rawJid === 'status@broadcast') continue
+        const fromMe = !!msg.key?.fromMe
+        const jid = (!fromMe && (msg.key.senderPn || msg.key.participantPn)) || rawJid
+        const text = extractText(msg)
+        if (!text) continue // pula reação / protocolo (sem conteúdo)
+        const sentAt = msg.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() : new Date().toISOString()
+        try {
+          const contact = await upsertContact({ jid, phone: jid.split('@')[0], name: nameByJid[rawJid] || msg.pushName || null })
+          await insertMessage({ contactId: contact.id, jid, fromMe, text, waMessageId: msg.key.id, sentAt })
+          if (!lastByContact[contact.id] || sentAt > lastByContact[contact.id]) lastByContact[contact.id] = sentAt
+          saved++
+        } catch {}
+      }
+      // marca cada conversa do histórico como concluída
+      for (const [contactId, updatedAt] of Object.entries(lastByContact)) await setSessionDone(contactId, updatedAt)
+      if (saved > 0) console.log(`📥 Histórico: ${saved} msgs de ${Object.keys(lastByContact).length} conversas → Concluídas`)
+    } catch (e) {
+      console.error('Erro ao sincronizar histórico:', e?.message || e)
     }
   })
 
