@@ -175,8 +175,16 @@ export type ContactCard = {
 // ── Página de Contatos (lista, busca, criar, importar) ──
 export type ContactRow = { id: string; name: string | null; phone: string | null; jid: string; created_at: string; tags: string[]; avatar_url: string | null }
 
+// Normaliza um telefone para o padrão do WhatsApp (com DDI 55, sem símbolos).
+// Não precisa digitar o +55: se vier só DDD + número, o 55 é adicionado sozinho.
+//  • 13 díg. começando com 55 (55 + DDD + celular)  -> mantém
+//  • 12 díg. começando com 55 (55 + DDD + fixo)      -> mantém
+//  • 11 díg. (DDD + celular) ou 10 díg. (DDD + fixo) -> prefixa 55
 function normPhone(phone: string): string {
-  return (phone || '').replace(/\D/g, '')
+  let d = (phone || '').replace(/\D/g, '').replace(/^0+/, '') // tira símbolos e zeros à esquerda
+  if (d.startsWith('55') && (d.length === 12 || d.length === 13)) return d
+  if (d.length === 10 || d.length === 11) return '55' + d
+  return d // fora do padrão brasileiro: mantém como veio
 }
 
 function normTags(tags?: string[] | null): string[] {

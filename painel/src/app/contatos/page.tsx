@@ -267,7 +267,7 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
               <div>
                 <p className="font-semibold text-gray-800">2. Telefone:</p>
                 <ul className="mt-1 list-disc space-y-1 pl-5">
-                  <li>Sempre com DDI + DDD. Brasil = 55. Ex: <code className="rounded bg-gray-100 px-1">5561999998888</code></li>
+                  <li>Com DDD. <b>Não precisa do +55</b> — a gente adiciona sozinho. Ex: <code className="rounded bg-gray-100 px-1">61999998888</code></li>
                   <li>Pode ter pontos, espaços ou traços — a gente limpa sozinho.</li>
                 </ul>
               </div>
@@ -354,8 +354,8 @@ function CreateModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
           <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-300 p-2.5 text-sm outline-none focus:border-emerald-500" />
         </label>
         <label className="mb-3 block">
-          <span className="text-xs font-medium text-gray-500">WhatsApp (com DDI + DDD)</span>
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="5561999998888" required className="mt-1 w-full rounded-xl border border-gray-300 p-2.5 text-sm outline-none focus:border-emerald-500" />
+          <span className="text-xs font-medium text-gray-500">WhatsApp (com DDD) — não precisa do +55</span>
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="61999998888" required className="mt-1 w-full rounded-xl border border-gray-300 p-2.5 text-sm outline-none focus:border-emerald-500" />
         </label>
         <label className="mb-5 block">
           <span className="text-xs font-medium text-gray-500">Etiquetas (separadas por vírgula)</span>
