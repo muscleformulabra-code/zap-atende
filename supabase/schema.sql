@@ -9,8 +9,11 @@ create table if not exists contacts (
   jid         text unique not null,          -- id do WhatsApp (ex: 556199999999@s.whatsapp.net)
   phone       text,                          -- número
   name        text,                          -- nome que a pessoa usa no WhatsApp
+  tags        text[] default '{}',           -- etiquetas (ex: {psiquiatria,lead-frio})
   created_at  timestamptz default now()      -- quando entrou em contato pela 1ª vez
 );
+alter table contacts add column if not exists tags text[] default '{}';
+create index if not exists idx_contacts_tags on contacts using gin (tags);
 
 -- MENSAGENS: histórico de cada conversa.
 create table if not exists messages (

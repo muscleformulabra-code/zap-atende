@@ -1,80 +1,97 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import * as XLSX from 'xlsx'
 
-type Contact = { id: string; name: string | null; phone: string | null; jid: string; created_at: string }
+type Contact = { id: string; name: string | null; phone: string | null; jid: string; created_at: string; tags: string[] }
+type TagCount = { tag: string; count: number }
+type ParsedRow = { name?: string; phone: string; tags?: string[] }
 
 function initials(name: string | null, phone: string | null) {
   if (name?.trim()) return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('')
   return (phone ?? '?').slice(-2)
 }
 function data(iso: string) {
-  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-// Lê um CSV simples: cada linha "nome,telefone" (ou só telefone). Pula cabeçalho.
-function parseCSV(text: string): { name?: string; phone: string }[] {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-  const out: { name?: string; phone: string }[] = []
-  for (const line of lines) {
-    const cols = line.split(/[,;]/).map((c) => c.trim().replace(/^["']|["']$/g, ''))
-    const joined = cols.join(' ').toLowerCase()
-    if (/(telefone|phone|whatsapp|celular)/.test(joined) && !/\d{6,}/.test(line)) continue // cabeçalho
-    // Acha a coluna que parece telefone (tem muitos dígitos); o resto vira nome.
-    const phoneCol = cols.find((c) => c.replace(/\D/g, '').length >= 8)
-    if (!phoneCol) continue
-    const name = cols.filter((c) => c !== phoneCol).join(' ').trim()
-    out.push({ name: name || undefined, phone: phoneCol })
+const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
+
+// Lê uma planilha (.xlsx ou .csv) no padrão BotConversa:
+// colunas "Primeiro nome | Sobrenome | Telefone | Etiquetas". Também aceita
+// planilhas simples (nome, telefone) e arquivos sem cabeçalho.
+async function parseSpreadsheet(file: File): Promise<ParsedRow[]> {
+  const buf = await file.arrayBuffer()
+  const wb = XLSX.read(buf, { type: 'array' })
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  if (!ws) return []
+  const grid: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, raw: false })
+  if (grid.length === 0) return []
+
+  const header = grid[0].map((c) => norm(String(c ?? '')))
+  const hasHeader = header.some((h) => /(nome|telefone|phone|whatsapp|celular|etiqueta|sobrenome)/.test(h))
+  const findCol = (...keys: string[]) => header.findIndex((h) => keys.some((k) => h.includes(k)))
+  const iFirst = findCol('primeiro nome', 'nome', 'first')
+  const iLast = findCol('sobrenome', 'last')
+  const iPhone = findCol('telefone', 'whatsapp', 'phone', 'celular')
+  const iTags = findCol('etiqueta', 'tag')
+
+  const body = hasHeader ? grid.slice(1) : grid
+  const out: ParsedRow[] = []
+  for (const row of body) {
+    const cell = (i: number) => (i >= 0 ? String(row[i] ?? '').trim() : '')
+    let phone = ''
+    let name = ''
+    let tags: string[] = []
+    if (hasHeader && iPhone >= 0) {
+      phone = cell(iPhone)
+      name = [cell(iFirst), cell(iLast)].filter(Boolean).join(' ').trim()
+      tags = cell(iTags).split(/[,;]/).map((t) => t.trim()).filter(Boolean)
+    } else {
+      // sem cabeçalho: acha a coluna que parece telefone; o resto vira nome.
+      const cols = row.map((c) => String(c ?? '').trim())
+      const phoneCol = cols.find((c) => c.replace(/\D/g, '').length >= 8)
+      if (!phoneCol) continue
+      phone = phoneCol
+      name = cols.filter((c) => c !== phoneCol).join(' ').trim()
+    }
+    if (phone.replace(/\D/g, '').length >= 8) out.push({ name: name || undefined, phone, tags: tags.length ? tags : undefined })
   }
   return out
 }
 
 export default function Contatos() {
   const [contacts, setContacts] = useState<Contact[]>([])
+  const [tags, setTags] = useState<TagCount[]>([])
   const [search, setSearch] = useState('')
+  const [activeTag, setActiveTag] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [adding, setAdding] = useState(false)
-  const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [msg, setMsg] = useState('')
-  const fileRef = useRef<HTMLInputElement>(null)
+  const [showImport, setShowImport] = useState(false)
+  const [showCreate, setShowCreate] = useState(false)
+  const [menuFor, setMenuFor] = useState<string | null>(null)
 
-  const load = useCallback(async (q: string) => {
+  const load = useCallback(async (q: string, tag: string | null) => {
     setLoading(true)
-    const r = await fetch(`/api/contacts${q ? `?search=${encodeURIComponent(q)}` : ''}`)
+    const params = new URLSearchParams()
+    if (q) params.set('search', q)
+    if (tag) params.set('tag', tag)
+    const r = await fetch(`/api/contacts${params.toString() ? `?${params}` : ''}`)
     setContacts(await r.json())
     setLoading(false)
   }, [])
 
+  const loadTags = useCallback(async () => {
+    const r = await fetch('/api/tags')
+    setTags(r.ok ? await r.json() : [])
+  }, [])
+
   useEffect(() => {
-    const t = setTimeout(() => load(search), 300)
+    const t = setTimeout(() => { load(search, activeTag); loadTags() }, 300)
     return () => clearTimeout(t)
-  }, [search, load])
-
-  async function criar(e: React.FormEvent) {
-    e.preventDefault()
-    setMsg('')
-    const r = await fetch('/api/contacts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, phone }) })
-    const d = await r.json()
-    if (!r.ok) return setMsg('❌ ' + (d.error || 'erro'))
-    setName(''); setPhone(''); setAdding(false); setMsg('✅ contato salvo')
-    load(search)
-  }
-
-  async function importar(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setMsg('⏳ importando…')
-    const rows = parseCSV(await file.text())
-    if (rows.length === 0) { setMsg('❌ nenhum telefone encontrado no arquivo'); return }
-    const r = await fetch('/api/contacts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }) })
-    const d = await r.json()
-    setMsg(r.ok ? `✅ ${d.imported} contatos importados` : '❌ ' + (d.error || 'erro'))
-    if (fileRef.current) fileRef.current.value = ''
-    load(search)
-  }
+  }, [search, activeTag, load, loadTags])
 
   async function conversar(c: Contact) {
+    setMenuFor(null)
     const t = prompt(`Mensagem para ${c.name || c.phone}:`)
     if (!t?.trim()) return
     const r = await fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contactId: c.id, text: t }) })
@@ -82,76 +99,270 @@ export default function Contatos() {
     alert(d.warn ? '⚠️ ' + d.warn : '✅ Mensagem enviada! Veja a conversa no Inbox.')
   }
 
+  async function excluir(c: Contact) {
+    setMenuFor(null)
+    if (!confirm(`Excluir ${c.name || c.phone}? Isso apaga o contato e o histórico dele.`)) return
+    await fetch(`/api/contacts?id=${c.id}`, { method: 'DELETE' })
+    load(search, activeTag); loadTags()
+  }
+
   return (
-    <main className="mx-auto max-w-5xl px-6 py-8">
+    <main className="mx-auto max-w-6xl px-6 py-8" onClick={() => setMenuFor(null)}>
+      {/* HEADER */}
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Contatos</h1>
-          <p className="text-sm text-gray-500">{contacts.length} contatos {search && '(filtrados)'}</p>
+          <p className="text-sm text-gray-500">{contacts.length} contatos{(search || activeTag) && ' (filtrados)'}</p>
         </div>
         <div className="flex items-center gap-2">
-          <input ref={fileRef} type="file" accept=".csv,text/csv,text/plain" onChange={importar} className="hidden" />
-          <button onClick={() => fileRef.current?.click()} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">⬆ Importar CSV</button>
-          <button onClick={() => { setAdding((s) => !s); setMsg('') }} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600">{adding ? '✕ fechar' : '+ Criar contato'}</button>
+          <button onClick={() => setShowImport(true)} className="flex items-center gap-2 rounded-xl border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-600 hover:bg-emerald-50">
+            Importar Contatos
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><path d="M12 3v12M7 8l5-5 5 5M5 21h14" /></svg>
+          </button>
+          <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-600">
+            Criar Contato
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M22 11h-6" /></svg>
+          </button>
         </div>
       </header>
 
-      {adding && (
-        <form onSubmit={criar} className="mb-4 flex flex-wrap items-end gap-2 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-          <label className="flex-1">
-            <span className="text-xs text-gray-500">Nome</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm outline-none focus:border-emerald-500" />
-          </label>
-          <label className="flex-1">
-            <span className="text-xs text-gray-500">WhatsApp (com DDD)</span>
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="ex: 5561999998888" required className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm outline-none focus:border-emerald-500" />
-          </label>
-          <button className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600">Salvar</button>
-        </form>
-      )}
-
-      <div className="mb-3 flex items-center gap-3">
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="🔎 Buscar por nome ou telefone…" className="flex-1 rounded-xl border border-gray-300 px-4 py-2 text-sm outline-none focus:border-emerald-500" />
-        {loading && <span className="text-xs text-gray-400">carregando…</span>}
-      </div>
-      {msg && <div className="mb-3 text-sm text-gray-600">{msg}</div>}
-
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-100 text-left text-xs text-gray-400">
-              <th className="px-4 py-3 font-medium">Contato</th>
-              <th className="px-4 py-3 font-medium">WhatsApp</th>
-              <th className="px-4 py-3 font-medium">Cadastrado</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {contacts.map((c) => (
-              <tr key={c.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-[11px] font-semibold text-white">{initials(c.name, c.phone)}</div>
-                    <span className="text-gray-800">{c.name?.trim() || <span className="text-gray-400">Sem nome</span>}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-gray-600">+{c.phone}</td>
-                <td className="px-4 py-3 text-gray-500">{data(c.created_at)}</td>
-                <td className="px-4 py-3 text-right">
-                  <button onClick={() => conversar(c)} className="rounded-lg px-3 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-50">💬 Conversar</button>
-                </td>
-              </tr>
-            ))}
-            {contacts.length === 0 && !loading && (
-              <tr><td colSpan={4} className="px-4 py-10 text-center text-sm text-gray-400">{search ? 'Nenhum contato encontrado.' : 'Nenhum contato ainda. Eles aparecem sozinhos quando um paciente escreve — ou importe seu CSV.'}</td></tr>
+      <div className="flex gap-6">
+        {/* PAINEL DE ETIQUETAS */}
+        <aside className="w-56 shrink-0">
+          <h2 className="text-sm font-bold text-gray-800">Mais popular</h2>
+          <p className="mb-3 text-xs text-gray-400">Clique numa etiqueta para filtrar os contatos.</p>
+          <div className="text-xs font-bold uppercase tracking-wide text-emerald-600">Etiquetas</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {activeTag && (
+              <button onClick={() => setActiveTag(null)} className="rounded-full bg-gray-800 px-3 py-1 text-xs font-medium text-white">✕ {activeTag}</button>
             )}
-          </tbody>
-        </table>
+            {tags.filter((t) => t.tag !== activeTag).map((t) => (
+              <button key={t.tag} onClick={() => setActiveTag(t.tag)} className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-600 hover:border-emerald-400 hover:text-emerald-600">
+                {t.tag} <span className="text-gray-400">{t.count}</span>
+              </button>
+            ))}
+            {tags.length === 0 && <span className="text-xs text-gray-400">Nenhuma etiqueta ainda. Elas vêm da importação (coluna Etiquetas).</span>}
+          </div>
+        </aside>
+
+        {/* TABELA */}
+        <section className="min-w-0 flex-1">
+          <div className="mb-3 flex items-center gap-3">
+            <div className="relative flex-1">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.3-4.3" /></svg>
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Busca por nome ou telefone…" className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-emerald-400 focus:bg-white" />
+            </div>
+            {loading && <span className="text-xs text-gray-400">carregando…</span>}
+          </div>
+
+          <div className="overflow-visible rounded-2xl border border-gray-200 bg-white shadow-sm">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-left text-xs font-medium text-gray-400">
+                  <th className="w-10 px-4 py-3" />
+                  <th className="px-4 py-3">Usuários</th>
+                  <th className="px-4 py-3">WhatsApp</th>
+                  <th className="px-4 py-3">Data de inscrição</th>
+                  <th className="w-10 px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {contacts.map((c) => (
+                  <tr key={c.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                    <td className="px-4 py-3"><input type="checkbox" className="h-4 w-4 rounded border-gray-300 accent-emerald-500" /></td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-[11px] font-semibold text-white">{initials(c.name, c.phone)}</div>
+                        <div className="min-w-0">
+                          <div className="truncate font-medium text-gray-800">{c.name?.trim() || <span className="text-gray-400">Sem nome</span>}</div>
+                          {c.tags.length > 0 && (
+                            <div className="mt-0.5 flex flex-wrap gap-1">
+                              {c.tags.slice(0, 3).map((t) => <span key={t} className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600">{t}</span>)}
+                              {c.tags.length > 3 && <span className="text-[10px] text-gray-400">+{c.tags.length - 3}</span>}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">+{c.phone}</td>
+                    <td className="px-4 py-3 text-gray-500">{data(c.created_at)}</td>
+                    <td className="relative px-4 py-3 text-right">
+                      <button onClick={(e) => { e.stopPropagation(); setMenuFor(menuFor === c.id ? null : c.id) }} className="rounded-lg px-2 py-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">⋮</button>
+                      {menuFor === c.id && (
+                        <div onClick={(e) => e.stopPropagation()} className="absolute right-4 top-11 z-20 w-40 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                          <button onClick={() => conversar(c)} className="flex w-full items-center gap-2 border-b border-gray-50 px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-emerald-50">💬 Conversar</button>
+                          <button onClick={() => excluir(c)} className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-red-500 hover:bg-red-50">🗑 Excluir</button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {contacts.length === 0 && !loading && (
+                  <tr><td colSpan={5} className="px-4 py-12 text-center text-sm text-gray-400">{search || activeTag ? 'Nenhum contato encontrado.' : 'Nenhum contato ainda. Eles aparecem sozinhos quando um paciente escreve — ou importe sua planilha.'}</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
 
-      <p className="mt-3 text-xs text-gray-400">
-        💡 <b>Importar CSV:</b> um contato por linha, no formato <code>nome,telefone</code> (o telefone com DDD e país, ex: <code>5561999998888</code>). Contatos repetidos são atualizados, não duplicados.
-      </p>
+      {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={() => { load(search, activeTag); loadTags() }} />}
+      {showCreate && <CreateModal onClose={() => setShowCreate(false)} onDone={() => { load(search, activeTag); loadTags() }} />}
     </main>
+  )
+}
+
+// ── MODAL: Importar Contatos (padrão BotConversa) ──
+function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [rows, setRows] = useState<ParsedRow[] | null>(null)
+  const [fileName, setFileName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [showRules, setShowRules] = useState(false)
+  const [drag, setDrag] = useState(false)
+  const [err, setErr] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  async function handleFile(file?: File) {
+    if (!file) return
+    setErr('')
+    try {
+      const parsed = await parseSpreadsheet(file)
+      if (parsed.length === 0) { setErr('Não achei telefones válidos na planilha. Confira o modelo.'); setRows(null); return }
+      setRows(parsed); setFileName(file.name)
+    } catch {
+      setErr('Não consegui ler o arquivo. Use .xlsx ou .csv.')
+    }
+  }
+
+  async function importar() {
+    if (!rows) return
+    setBusy(true)
+    const r = await fetch('/api/contacts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }) })
+    const d = await r.json()
+    setBusy(false)
+    if (!r.ok) { setErr(d.error || 'Falha ao importar'); return }
+    onDone(); onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="relative w-full max-w-lg rounded-3xl bg-white p-8 shadow-2xl">
+        <button onClick={onClose} className="absolute -right-3 -top-3 flex h-9 w-9 items-center justify-center rounded-full bg-gray-700 text-white shadow-lg hover:bg-gray-900">✕</button>
+
+        {showRules ? (
+          <>
+            <div className="mb-4 flex items-center gap-2">
+              <button onClick={() => setShowRules(false)} className="text-gray-400 hover:text-gray-700">←</button>
+              <h2 className="text-xl font-bold text-gray-900">Como preencher a planilha</h2>
+            </div>
+            <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-2 text-sm text-gray-600">
+              <div>
+                <p className="font-semibold text-gray-800">1. Colunas (nesta ordem):</p>
+                <ul className="mt-1 list-disc space-y-1 pl-5">
+                  <li><b>Primeiro nome</b> (A1), <b>Sobrenome</b> (B1), <b>Telefone</b> (C1), <b>Etiquetas</b> (D1)</li>
+                  <li>Uma única aba/planilha.</li>
+                </ul>
+              </div>
+              <div>
+                <p className="font-semibold text-gray-800">2. Telefone:</p>
+                <ul className="mt-1 list-disc space-y-1 pl-5">
+                  <li>Sempre com DDI + DDD. Brasil = 55. Ex: <code className="rounded bg-gray-100 px-1">5561999998888</code></li>
+                  <li>Pode ter pontos, espaços ou traços — a gente limpa sozinho.</li>
+                </ul>
+              </div>
+              <div>
+                <p className="font-semibold text-gray-800">3. Etiquetas (opcional):</p>
+                <ul className="mt-1 list-disc space-y-1 pl-5">
+                  <li>Separe várias por vírgula. Ex: <code className="rounded bg-gray-100 px-1">psiquiatria, lead-frio</code></li>
+                  <li>Até 40 caracteres cada.</li>
+                </ul>
+              </div>
+              <p className="text-xs text-gray-400">Também aceitamos .csv simples com <code>nome,telefone</code>.</p>
+            </div>
+          </>
+        ) : (
+          <>
+            <h2 className="mb-1 text-center text-2xl font-bold text-gray-900">Importar Contatos</h2>
+            <p className="mb-6 text-center text-sm text-gray-500">
+              Faça o upload de um arquivo <b>.xlsx</b> ou <b>.csv</b>. Veja as regras de preenchimento{' '}
+              <button onClick={() => setShowRules(true)} className="font-medium text-emerald-600 hover:underline">aqui</button>.
+            </p>
+
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,text/csv" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
+            <div
+              onClick={() => fileRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
+              onDragLeave={() => setDrag(false)}
+              onDrop={(e) => { e.preventDefault(); setDrag(false); handleFile(e.dataTransfer.files?.[0]) }}
+              className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-10 text-center transition ${drag ? 'border-emerald-500 bg-emerald-50' : 'border-emerald-200 bg-emerald-50/40 hover:bg-emerald-50'}`}
+            >
+              {rows ? (
+                <>
+                  <span className="text-3xl">✅</span>
+                  <p className="mt-2 font-semibold text-emerald-700">{rows.length} contatos prontos</p>
+                  <p className="text-xs text-gray-500">{fileName} — clique para trocar</p>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 font-semibold text-emerald-600">
+                    Importar arquivo
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M12 3v12M7 8l5-5 5 5M5 21h14" /></svg>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">Clique para selecionar ou arraste e solte o arquivo.</p>
+                </>
+              )}
+            </div>
+
+            {err && <p className="mt-3 text-center text-sm text-red-500">{err}</p>}
+
+            <button onClick={importar} disabled={!rows || busy} className="mt-6 w-full rounded-2xl bg-emerald-500 py-3 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-emerald-200">
+              {busy ? 'Importando…' : rows ? `Importar ${rows.length} contatos` : 'Importar contatos'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── MODAL: Criar Contato ──
+function CreateModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [tags, setTags] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault(); setErr(''); setBusy(true)
+    const tagArr = tags.split(/[,;]/).map((t) => t.trim()).filter(Boolean)
+    const r = await fetch('/api/contacts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, phone, tags: tagArr }) })
+    const d = await r.json()
+    setBusy(false)
+    if (!r.ok) { setErr(d.error || 'erro'); return }
+    onDone(); onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <form onSubmit={salvar} onClick={(e) => e.stopPropagation()} className="relative w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl">
+        <button type="button" onClick={onClose} className="absolute -right-3 -top-3 flex h-9 w-9 items-center justify-center rounded-full bg-gray-700 text-white shadow-lg hover:bg-gray-900">✕</button>
+        <h2 className="mb-6 text-center text-2xl font-bold text-gray-900">Criar Contato</h2>
+        <label className="mb-3 block">
+          <span className="text-xs font-medium text-gray-500">Nome</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-300 p-2.5 text-sm outline-none focus:border-emerald-500" />
+        </label>
+        <label className="mb-3 block">
+          <span className="text-xs font-medium text-gray-500">WhatsApp (com DDI + DDD)</span>
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="5561999998888" required className="mt-1 w-full rounded-xl border border-gray-300 p-2.5 text-sm outline-none focus:border-emerald-500" />
+        </label>
+        <label className="mb-5 block">
+          <span className="text-xs font-medium text-gray-500">Etiquetas (separadas por vírgula)</span>
+          <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="psiquiatria, lead-frio" className="mt-1 w-full rounded-xl border border-gray-300 p-2.5 text-sm outline-none focus:border-emerald-500" />
+        </label>
+        {err && <p className="mb-3 text-center text-sm text-red-500">❌ {err}</p>}
+        <button disabled={busy} className="w-full rounded-2xl bg-emerald-500 py-3 text-sm font-semibold text-white hover:bg-emerald-600 disabled:bg-emerald-200">{busy ? 'Salvando…' : 'Salvar contato'}</button>
+      </form>
+    </div>
   )
 }

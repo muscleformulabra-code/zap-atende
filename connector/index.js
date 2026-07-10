@@ -304,6 +304,38 @@ setInterval(async()=>{
       })
       return
     }
+    // Envia mídia (foto, vídeo ou PDF/documento) pelo inbox. Recebe o arquivo
+    // em base64 (dataUrl) — sem depender de storage externo.
+    if (req.method === 'POST' && req.url === '/send-media') {
+      let body = ''
+      req.on('data', (c) => (body += c))
+      req.on('end', async () => {
+        try {
+          const { to, kind, dataUrl, fileName, caption, sentBy, contactId } = JSON.parse(body || '{}')
+          if (!to || !dataUrl) throw new Error('to e dataUrl obrigatórios')
+          if (!sock) throw new Error('WhatsApp não conectado')
+          const m = /^data:([^;]+);base64,(.*)$/s.exec(dataUrl)
+          if (!m) throw new Error('dataUrl inválido')
+          const mimetype = m[1]
+          const buffer = Buffer.from(m[2], 'base64')
+          let content
+          if (kind === 'image') content = { image: buffer, caption: caption || '' }
+          else if (kind === 'video') content = { video: buffer, caption: caption || '' }
+          else content = { document: buffer, mimetype, fileName: fileName || 'arquivo' }
+          const sent = await sock.sendMessage(to, content)
+          const label = caption || (kind === 'image' ? '[imagem]' : kind === 'video' ? '[vídeo]' : `[${fileName || 'documento'}]`)
+          try {
+            await insertMessage({ contactId, jid: to, fromMe: true, text: label, waMessageId: sent?.key?.id, sentAt: new Date().toISOString(), sentBy })
+          } catch {}
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true }))
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: e.message }))
+        }
+      })
+      return
+    }
     res.writeHead(404)
     res.end()
   })

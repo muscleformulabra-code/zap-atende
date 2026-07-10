@@ -126,6 +126,40 @@ async function setSessionStatus(contactId: string, status: string): Promise<void
   })
 }
 
+// Grava a posição completa da sessão de fluxo (usado ao "enviar fluxo" pelo inbox).
+export async function setFlowSession(
+  contactId: string,
+  state: { flowId: string | null; currentNode: string | null; status: string }
+): Promise<void> {
+  await rest('flow_sessions?on_conflict=contact_id', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({
+      contact_id: contactId,
+      flow_id: state.flowId,
+      current_node: state.currentNode,
+      status: state.status,
+      updated_at: new Date().toISOString(),
+    }),
+  })
+}
+
+// Reinicia a automação do contato: zera a posição e volta a "active", com
+// updated_at antigo pra que a próxima mensagem caia no fluxo de boas-vindas.
+export async function restartAutomation(contactId: string): Promise<void> {
+  await rest('flow_sessions?on_conflict=contact_id', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({
+      contact_id: contactId,
+      flow_id: null,
+      current_node: null,
+      status: 'active',
+      updated_at: new Date(0).toISOString(),
+    }),
+  })
+}
+
 // Ficha do lead: dados do contato + status do atendimento (pro painel do inbox).
 export type ContactCard = {
   id: string
@@ -137,50 +171,102 @@ export type ContactCard = {
 }
 
 // ── Página de Contatos (lista, busca, criar, importar) ──
-export type ContactRow = { id: string; name: string | null; phone: string | null; jid: string; created_at: string }
+export type ContactRow = { id: string; name: string | null; phone: string | null; jid: string; created_at: string; tags: string[] }
 
 function normPhone(phone: string): string {
   return (phone || '').replace(/\D/g, '')
 }
 
-export async function listContacts(search?: string, limit = 500): Promise<ContactRow[]> {
-  let path = `contacts?select=id,name,phone,jid,created_at&order=created_at.desc&limit=${limit}`
+function normTags(tags?: string[] | null): string[] {
+  return (tags ?? [])
+    .map((t) => (t || '').trim())
+    .filter(Boolean)
+    .map((t) => t.slice(0, 40))
+}
+
+export async function listContacts(search?: string, tag?: string, limit = 1000): Promise<ContactRow[]> {
+  let path = `contacts?select=id,name,phone,jid,created_at,tags&order=created_at.desc&limit=${limit}`
   if (search && search.trim()) {
     const s = encodeURIComponent(search.trim())
     path += `&or=(name.ilike.*${s}*,phone.ilike.*${s}*)`
   }
-  return (await rest(path)).json()
+  if (tag && tag.trim()) {
+    // filtro "contém a etiqueta" (array contains) do PostgREST.
+    path += `&tags=cs.{${encodeURIComponent(tag.trim())}}`
+  }
+  try {
+    const rows = await (await rest(path)).json()
+    return (rows as ContactRow[]).map((r) => ({ ...r, tags: r.tags ?? [] }))
+  } catch {
+    // Coluna tags ainda não criada → busca sem ela.
+    const fallback = path.replace(',tags', '').replace(/&tags=cs\.[^&]*/, '')
+    const rows = await (await rest(fallback)).json()
+    return (rows as Omit<ContactRow, 'tags'>[]).map((r) => ({ ...r, tags: [] }))
+  }
+}
+
+// Lista todas as etiquetas em uso, com a contagem de contatos por etiqueta.
+export async function listTags(): Promise<{ tag: string; count: number }[]> {
+  try {
+    const rows: { tags: string[] | null }[] = await (
+      await rest('contacts?select=tags&tags=not.is.null&limit=5000')
+    ).json()
+    const acc: Record<string, number> = {}
+    for (const r of rows) for (const t of r.tags ?? []) if (t) acc[t] = (acc[t] || 0) + 1
+    return Object.entries(acc)
+      .map(([tag, c]) => ({ tag, count: c }))
+      .sort((a, b) => b.count - a.count)
+  } catch {
+    return []
+  }
 }
 
 export async function countContacts(): Promise<number> {
   return count('contacts?select=id')
 }
 
-export async function createContact(name: string, phone: string): Promise<void> {
-  const digits = normPhone(phone)
-  if (digits.length < 8) throw new Error('Telefone inválido (informe com DDD)')
-  await rest('contacts?on_conflict=jid', {
-    method: 'POST',
-    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify({ jid: `${digits}@s.whatsapp.net`, phone: digits, name: name?.trim() || null }),
-  })
-}
-
-// Importa vários contatos de uma vez (upsert por jid). Retorna quantos entraram.
-export async function importContacts(rows: { name?: string; phone: string }[]): Promise<number> {
-  const valid = rows
-    .map((r) => ({ name: (r.name || '').trim() || null, phone: normPhone(r.phone) }))
-    .filter((r) => r.phone.length >= 8)
-    .map((r) => ({ jid: `${r.phone}@s.whatsapp.net`, phone: r.phone, name: r.name }))
-  if (valid.length === 0) return 0
-  for (let i = 0; i < valid.length; i += 500) {
+// Upsert de contatos por jid. Tenta com `tags`; se a coluna ainda não existir
+// no banco, refaz sem `tags` (assim a importação nunca quebra na transição).
+async function upsertContacts(rows: Record<string, unknown>[]): Promise<void> {
+  try {
     await rest('contacts?on_conflict=jid', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify(valid.slice(i, i + 500)),
+      body: JSON.stringify(rows),
+    })
+  } catch (e) {
+    if (!rows.some((r) => 'tags' in r)) throw e
+    const semTags = rows.map(({ tags, ...rest }) => rest) // eslint-disable-line @typescript-eslint/no-unused-vars
+    await rest('contacts?on_conflict=jid', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(semTags),
     })
   }
+}
+
+export async function createContact(name: string, phone: string, tags?: string[]): Promise<void> {
+  const digits = normPhone(phone)
+  if (digits.length < 8) throw new Error('Telefone inválido (informe com DDD)')
+  await upsertContacts([{ jid: `${digits}@s.whatsapp.net`, phone: digits, name: name?.trim() || null, tags: normTags(tags) }])
+}
+
+// Importa vários contatos de uma vez (upsert por jid). Retorna quantos entraram.
+export async function importContacts(rows: { name?: string; phone: string; tags?: string[] }[]): Promise<number> {
+  const valid = rows
+    .map((r) => ({ name: (r.name || '').trim() || null, phone: normPhone(r.phone), tags: normTags(r.tags) }))
+    .filter((r) => r.phone.length >= 8)
+    .map((r) => ({ jid: `${r.phone}@s.whatsapp.net`, phone: r.phone, name: r.name, tags: r.tags }))
+  if (valid.length === 0) return 0
+  for (let i = 0; i < valid.length; i += 500) {
+    await upsertContacts(valid.slice(i, i + 500))
+  }
   return valid.length
+}
+
+// Exclui um contato (usado pelo menu ⋮ da lista).
+export async function deleteContact(id: string): Promise<void> {
+  await rest(`contacts?id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } })
 }
 
 export async function getContactCard(contactId: string): Promise<ContactCard | null> {
