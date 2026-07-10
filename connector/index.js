@@ -178,9 +178,10 @@ async function start() {
         })
         diag.saved++
 
-        // Foto de perfil (só quando o paciente escreve). Throttle de 12h e
-        // respeita a privacidade dele (profilePictureUrl lança se estiver oculta).
-        if (!fromMe) {
+        // Foto de perfil — DESLIGADA por padrão (modo anti-ban): consultar foto
+        // de muitos contatos vira sinal de scraping pro WhatsApp. Só liga se
+        // definir FETCH_AVATARS=true no ambiente do conector.
+        if (!fromMe && process.env.FETCH_AVATARS === 'true') {
           const last = contact.avatar_updated_at ? Date.parse(contact.avatar_updated_at) : 0
           if (Date.now() - last > 12 * 3600 * 1000) {
             const url = await sock.profilePictureUrl(rawJid, 'image').catch(() => null)

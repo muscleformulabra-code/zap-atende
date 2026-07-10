@@ -91,8 +91,8 @@ create table if not exists settings (
   company_name       text default '',
   hours              jsonb not null default '{"days":[1,2,3,4,5],"start":"08:00","end":"18:00"}'::jsonb,
   off_hours_message  text default 'Olá! 🌙 No momento estamos fora do horário de atendimento. Assim que abrirmos, retornamos sua mensagem. Obrigado!',
-  min_delay_ms       int not null default 1200,
-  max_delay_ms       int not null default 3500,
+  min_delay_ms       int not null default 2500,   -- anti-ban: delay humanizado entre msgs
+  max_delay_ms       int not null default 6000,
   reengage_hours     int not null default 12,   -- paciente que volta após X horas -> reinicia o fluxo
   updated_at         timestamptz default now(),
   constraint settings_singleton check (id = 1)

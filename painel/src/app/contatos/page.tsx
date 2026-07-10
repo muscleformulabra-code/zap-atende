@@ -409,6 +409,9 @@ function MessageModal({ contact, onClose }: { contact: Contact; onClose: () => v
             ⚠️ WhatsApp desconectado no momento. Reconecte escaneando o QR para a mensagem chegar.
           </div>
         )}
+        <div className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-[11px] leading-snug text-red-600">
+          🛡️ <b>Anti-ban:</b> evite iniciar conversa com quem <b>nunca te escreveu</b> — o WhatsApp pode restringir o número. Prefira responder quem já entrou em contato.
+        </div>
 
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} autoFocus placeholder="Escreva sua mensagem…" className="w-full resize-none rounded-xl border border-gray-300 p-3 text-sm outline-none focus:border-emerald-500" />
 
