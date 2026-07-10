@@ -66,6 +66,7 @@ export default function Contatos() {
   const [showImport, setShowImport] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [menuFor, setMenuFor] = useState<string | null>(null)
+  const [msgFor, setMsgFor] = useState<Contact | null>(null)
 
   const load = useCallback(async (q: string, tag: string | null) => {
     setLoading(true)
@@ -87,13 +88,9 @@ export default function Contatos() {
     return () => clearTimeout(t)
   }, [search, activeTag, load, loadTags])
 
-  async function conversar(c: Contact) {
+  function conversar(c: Contact) {
     setMenuFor(null)
-    const t = prompt(`Mensagem para ${c.name || c.phone}:`)
-    if (!t?.trim()) return
-    const r = await fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contactId: c.id, text: t }) })
-    const d = await r.json()
-    alert(d.warn ? '⚠️ ' + d.warn : '✅ Mensagem enviada! Veja a conversa no Inbox.')
+    setMsgFor(c)
   }
 
   async function excluir(c: Contact) {
@@ -184,10 +181,16 @@ export default function Contatos() {
                     <td className="px-4 py-3 text-gray-600">+{c.phone}</td>
                     <td className="px-4 py-3 text-gray-500">{data(c.created_at)}</td>
                     <td className="relative px-4 py-3 text-right">
-                      <button onClick={(e) => { e.stopPropagation(); setMenuFor(menuFor === c.id ? null : c.id) }} className="rounded-lg px-2 py-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">⋮</button>
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={(e) => { e.stopPropagation(); conversar(c) }} className="flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-100">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" /></svg>
+                          Mensagem
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); setMenuFor(menuFor === c.id ? null : c.id) }} className="rounded-lg px-2 py-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">⋮</button>
+                      </div>
                       {menuFor === c.id && (
-                        <div onClick={(e) => e.stopPropagation()} className="absolute right-4 top-11 z-20 w-40 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
-                          <button onClick={() => conversar(c)} className="flex w-full items-center gap-2 border-b border-gray-50 px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-emerald-50">💬 Conversar</button>
+                        <div onClick={(e) => e.stopPropagation()} className="absolute right-4 top-12 z-20 w-40 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                          <button onClick={() => conversar(c)} className="flex w-full items-center gap-2 border-b border-gray-50 px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-emerald-50">💬 Enviar mensagem</button>
                           <button onClick={() => excluir(c)} className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-red-500 hover:bg-red-50">🗑 Excluir</button>
                         </div>
                       )}
@@ -205,6 +208,7 @@ export default function Contatos() {
 
       {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={() => { load(search, activeTag); loadTags() }} />}
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} onDone={() => { load(search, activeTag); loadTags() }} />}
+      {msgFor && <MessageModal contact={msgFor} onClose={() => setMsgFor(null)} />}
     </main>
   )
 }
@@ -359,6 +363,64 @@ function CreateModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
         </label>
         {err && <p className="mb-3 text-center text-sm text-red-500">❌ {err}</p>}
         <button disabled={busy} className="w-full rounded-2xl bg-emerald-500 py-3 text-sm font-semibold text-white hover:bg-emerald-600 disabled:bg-emerald-200">{busy ? 'Salvando…' : 'Salvar contato'}</button>
+      </form>
+    </div>
+  )
+}
+
+// ── MODAL: Enviar mensagem para um contato ──
+function MessageModal({ contact, onClose }: { contact: Contact; onClose: () => void }) {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [online, setOnline] = useState<boolean | null>(null)
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
+
+  useEffect(() => {
+    fetch('/api/status').then((r) => r.json()).then((d) => setOnline(!!d.whatsapp)).catch(() => setOnline(false))
+  }, [])
+
+  async function enviar(e: React.FormEvent) {
+    e.preventDefault()
+    const t = text.trim()
+    if (!t || busy) return
+    setBusy(true); setResult(null)
+    const r = await fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contactId: contact.id, text: t }) })
+    const d = await r.json()
+    setBusy(false)
+    if (d.warn) setResult({ ok: false, msg: d.warn })
+    else { setResult({ ok: true, msg: 'Mensagem enviada! Veja a conversa no Inbox.' }); setText('') }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <form onSubmit={enviar} onClick={(e) => e.stopPropagation()} className="relative w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl">
+        <button type="button" onClick={onClose} className="absolute -right-3 -top-3 flex h-9 w-9 items-center justify-center rounded-full bg-gray-700 text-white shadow-lg hover:bg-gray-900">✕</button>
+
+        <div className="mb-4 flex items-center gap-3">
+          <Avatar name={contact.name} phone={contact.phone} src={contact.avatar_url} className="h-11 w-11 text-sm" />
+          <div>
+            <div className="font-semibold text-gray-800">{contact.name?.trim() || 'Sem nome'}</div>
+            <div className="text-xs text-gray-400">+{contact.phone}</div>
+          </div>
+        </div>
+
+        {online === false && (
+          <div className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            ⚠️ WhatsApp desconectado no momento. Reconecte escaneando o QR para a mensagem chegar.
+          </div>
+        )}
+
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} autoFocus placeholder="Escreva sua mensagem…" className="w-full resize-none rounded-xl border border-gray-300 p-3 text-sm outline-none focus:border-emerald-500" />
+
+        {result && (
+          <p className={`mt-2 text-sm ${result.ok ? 'text-emerald-600' : 'text-red-500'}`}>
+            {result.ok ? '✅ ' : '⚠️ '}{result.msg}
+          </p>
+        )}
+
+        <button disabled={busy || !text.trim()} className="mt-4 w-full rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 py-3 text-sm font-semibold text-white shadow-md shadow-emerald-200 hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50">
+          {busy ? 'Enviando…' : 'Enviar mensagem'}
+        </button>
       </form>
     </div>
   )

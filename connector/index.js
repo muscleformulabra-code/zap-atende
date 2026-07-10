@@ -29,6 +29,20 @@ let resetting = false // quando true, não salva credenciais (evita recriar sess
 // Diagnóstico: contadores pra saber onde o fluxo de mensagem trava.
 const diag = { upsertEvents: 0, notifyEvents: 0, processed: 0, saved: 0, botReplies: 0, botPath: null, lastReplyCount: null, lastBotError: null, lastError: null, lastFrom: null, lastText: null, lastType: null }
 
+// Apaga os ARQUIVOS de sessão dentro de ./auth (não a pasta — é ponto de
+// montagem do volume no Railway e daria EBUSY). Usado no logout e no /reset.
+function wipeAuth() {
+  const removed = []
+  try {
+    const authDir = path.join(__dirname, 'auth')
+    for (const f of fs.readdirSync(authDir)) {
+      fs.rmSync(path.join(authDir, f), { recursive: true, force: true })
+      removed.push(f)
+    }
+  } catch (e) { diag.lastError = 'wipeAuth: ' + (e.message || e) }
+  return removed
+}
+
 // Envia uma resposta do bot (texto OU imagem) com "digitando…" e atraso
 // aleatório (humanizado) — salvaguarda anti-ban.
 async function botSend(sock, target, reply, settings) {
@@ -111,7 +125,12 @@ async function start() {
       const code = lastDisconnect?.error?.output?.statusCode
       const loggedOut = code === DisconnectReason.loggedOut
       if (loggedOut) {
-        console.log('\n🚪 Deslogado. Apague a pasta connector/auth e rode de novo para reconectar.\n')
+        // Deslogado (aparelho removido / sessão expirada): limpa a sessão e
+        // reinicia sozinho pra gerar um QR novo. Antes ele TRAVAVA aqui.
+        console.log('\n🚪 Deslogado — limpando sessão e reiniciando para gerar QR novo...\n')
+        resetting = true
+        wipeAuth()
+        setTimeout(() => process.exit(0), 400) // Railway reinicia -> QR novo em /qr
       } else {
         console.log('🔄 Conexão caiu, reconectando...')
         start()
@@ -232,16 +251,7 @@ http
         return res.end(JSON.stringify({ error: 'use /reset?confirm=yes' }))
       }
       resetting = true // impede que creds.update recrie a sessão
-      // Apaga os ARQUIVOS dentro de ./auth (não a pasta — ela é o ponto de
-      // montagem do volume e não pode ser removida: dá EBUSY).
-      const removed = []
-      try {
-        const authDir = path.join(__dirname, 'auth')
-        for (const f of fs.readdirSync(authDir)) {
-          fs.rmSync(path.join(authDir, f), { recursive: true, force: true })
-          removed.push(f)
-        }
-      } catch (e) { diag.lastError = 'reset: ' + (e.message || e) }
+      const removed = wipeAuth()
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ ok: true, removed, msg: 'sessão apagada, reiniciando para gerar QR novo' }))
       setTimeout(() => process.exit(0), 400) // Railway reinicia o container
@@ -308,7 +318,7 @@ setInterval(async()=>{
         try {
           const { to, text, sentBy, contactId } = JSON.parse(body || '{}')
           if (!to || !text) throw new Error('to e text obrigatórios')
-          if (!sock) throw new Error('WhatsApp não conectado')
+          if (!sock || !waConnected) throw new Error("WhatsApp desconectado — reconecte escaneando o QR")
           await sock.sendPresenceUpdate('composing', to).catch(() => {})
           const sent = await sock.sendMessage(to, { text })
           // Salva já atribuído ao atendente. O echo posterior é deduplicado pelo wa_message_id.
@@ -333,7 +343,7 @@ setInterval(async()=>{
         try {
           const { to, kind, dataUrl, fileName, caption, sentBy, contactId } = JSON.parse(body || '{}')
           if (!to || !dataUrl) throw new Error('to e dataUrl obrigatórios')
-          if (!sock) throw new Error('WhatsApp não conectado')
+          if (!sock || !waConnected) throw new Error("WhatsApp desconectado — reconecte escaneando o QR")
           const m = /^data:([^;]+);base64,(.*)$/s.exec(dataUrl)
           if (!m) throw new Error('dataUrl inválido')
           const mimetype = m[1]
