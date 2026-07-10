@@ -37,7 +37,7 @@ export default function Login() {
       <form onSubmit={entrar} className="za-pop relative w-full max-w-sm rounded-3xl border border-white/60 bg-white/80 p-8 shadow-2xl shadow-emerald-100 backdrop-blur">
         <div className="mb-6 flex flex-col items-center text-center">
           <span className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-500 text-2xl text-white shadow-lg shadow-emerald-200">💬</span>
-          <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Zap Atende</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Ricco Chat</h1>
           <p className="text-sm text-gray-500">Entre com seu acesso de atendente</p>
         </div>
 

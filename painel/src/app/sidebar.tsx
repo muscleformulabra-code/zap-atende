@@ -65,7 +65,7 @@ export default function Sidebar() {
       <div className="flex items-center gap-3 px-5 pb-4 pt-5">
         <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-500 text-xl text-white shadow-lg shadow-emerald-200/70">💬</span>
         <div className="leading-tight">
-          <span className="block text-[17px] font-extrabold tracking-tight text-gray-900">Zap Atende</span>
+          <span className="block text-[17px] font-extrabold tracking-tight text-gray-900">Ricco Chat</span>
           <span className="block text-[11px] font-medium text-gray-400">Atendimento inteligente</span>
         </div>
       </div>

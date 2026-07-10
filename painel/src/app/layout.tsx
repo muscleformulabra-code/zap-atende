@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Zap Atende",
-  description: "Plataforma de atendimento WhatsApp",
+  title: "Ricco Chat",
+  description: "Ricco Chat — atendimento inteligente",
 };
 
 export default function RootLayout({

@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────
-//  ZAP ATENDE — Conector WhatsApp (Fase 1: Fundação)
+//  RICCO CHAT — Conector WhatsApp (Fase 1: Fundação)
 //  Conecta o WhatsApp por QR code e salva TODO contato e mensagem
 //  automaticamente no banco (Supabase).
 // ─────────────────────────────────────────────────────────────
@@ -95,7 +95,7 @@ async function start() {
     version,
     auth: state,
     logger: pino({ level: 'silent' }),
-    browser: ['Zap Atende', 'Chrome', '1.0.0'],
+    browser: ['Ricco Chat', 'Chrome', '1.0.0'],
   })
 
   sock.ev.on('creds.update', () => { if (!resetting) saveCreds() })
