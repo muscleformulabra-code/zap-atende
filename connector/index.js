@@ -91,11 +91,31 @@ async function start() {
   const { state, saveCreds } = await useMultiFileAuthState('./auth')
   const { version } = await fetchLatestBaileysVersion()
 
+  // Proxy (anti-ban): rota a conexão por um IP fixo — de preferência do Brasil —
+  // pra o WhatsApp ver o "aparelho" sempre no mesmo lugar. Defina PROXY_URL no
+  // ambiente do conector, ex.:  http://user:senha@host:porta  ou  socks5://...
+  // Sem PROXY_URL, conecta direto (comportamento normal).
+  let agent
+  const proxyUrl = (process.env.PROXY_URL || '').trim()
+  if (proxyUrl) {
+    try {
+      const { HttpsProxyAgent } = require('https-proxy-agent')
+      const { SocksProxyAgent } = require('socks-proxy-agent')
+      agent = proxyUrl.toLowerCase().startsWith('socks') ? new SocksProxyAgent(proxyUrl) : new HttpsProxyAgent(proxyUrl)
+      console.log('🌐 Conectando via proxy:', proxyUrl.replace(/\/\/[^@]*@/, '//***:***@'))
+    } catch (e) {
+      console.error('⚠️  Falha ao configurar o proxy (conectando direto):', e.message)
+      agent = undefined
+    }
+  }
+
   sock = makeWASocket({
     version,
     auth: state,
     logger: pino({ level: 'silent' }),
     browser: ['Ricco Chat', 'Chrome', '1.0.0'],
+    agent,        // WebSocket do WhatsApp pelo proxy
+    fetchAgent: agent, // downloads de mídia pelo proxy
   })
 
   sock.ev.on('creds.update', () => { if (!resetting) saveCreds() })
