@@ -26,6 +26,7 @@ const { handleIncoming, getSettings, isWithinHours } = require('./bot')
 let sock = null
 let waConnected = false // true quando o WhatsApp está autenticado/conectado
 let resetting = false // quando true, não salva credenciais (evita recriar sessão no reset)
+let reconnecting = false // evita chamar start() em loop apertado quando a conexão cai
 // Diagnóstico: contadores pra saber onde o fluxo de mensagem trava.
 const diag = { upsertEvents: 0, notifyEvents: 0, processed: 0, saved: 0, botReplies: 0, botPath: null, lastReplyCount: null, lastBotError: null, lastError: null, lastFrom: null, lastText: null, lastType: null }
 
@@ -151,9 +152,12 @@ async function start() {
         resetting = true
         wipeAuth()
         setTimeout(() => process.exit(0), 400) // Railway reinicia -> QR novo em /qr
-      } else {
-        console.log('🔄 Conexão caiu, reconectando...')
-        start()
+      } else if (!reconnecting) {
+        // Reconecta com respiro de 5s (evita loop apertado que trava o processo
+        // quando a conta está restrita e o WhatsApp fica fechando a conexão).
+        reconnecting = true
+        console.log('🔄 Conexão caiu, reconectando em 5s...')
+        setTimeout(() => { reconnecting = false; start() }, 5000)
       }
     }
   })
