@@ -37,17 +37,19 @@ create index if not exists idx_messages_sent_at on messages(sent_at desc);
 
 -- VIEW de conversas: para cada contato, a última mensagem.
 -- last_from_me = false  ->  o paciente foi o último a falar (AGUARDANDO RESPOSTA).
+-- avatar_url vai POR ÚLTIMO: create-or-replace só permite ADICIONAR colunas no
+-- fim (não reordenar/inserir no meio de uma view já existente).
 create or replace view conversations as
 select
   c.id         as contact_id,
   c.jid,
   c.phone,
   c.name,
-  c.avatar_url,
   c.created_at,
   m.text       as last_text,
   m.from_me    as last_from_me,
-  m.sent_at    as last_sent_at
+  m.sent_at    as last_sent_at,
+  c.avatar_url
 from contacts c
 left join lateral (
   select text, from_me, sent_at
