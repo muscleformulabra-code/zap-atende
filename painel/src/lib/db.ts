@@ -181,7 +181,7 @@ export type ContactRow = { id: string; name: string | null; phone: string | null
 //  • 12 díg. começando com 55 (55 + DDD + fixo)      -> mantém
 //  • 11 díg. (DDD + celular) ou 10 díg. (DDD + fixo) -> prefixa 55
 function normPhone(phone: string): string {
-  let d = (phone || '').replace(/\D/g, '').replace(/^0+/, '') // tira símbolos e zeros à esquerda
+  const d = (phone || '').replace(/\D/g, '').replace(/^0+/, '') // tira símbolos e zeros à esquerda
   if (d.startsWith('55') && (d.length === 12 || d.length === 13)) return d
   if (d.length === 10 || d.length === 11) return '55' + d
   return d // fora do padrão brasileiro: mantém como veio
@@ -294,6 +294,8 @@ export type Stats = {
   msgsHoje: number
 }
 
+export type WaitingLead = { contact_id: string; name: string | null; phone: string | null; last_text: string | null; waitingMin: number }
+export type AttendantStat = { atendente: string; respostas: number; tempoRespMin: number | null }
 export type Analytics = {
   leadsPeriodo: number
   leadsTotal: number
@@ -303,61 +305,79 @@ export type Analytics = {
   recebidas: number
   enviadas: number
   tempoMedioRespMin: number | null
-  ranking: { atendente: string; respostas: number }[]
+  taxaResposta: number | null // % de conversas do período que receberam resposta
+  waiting: WaitingLead[] // leads aguardando resposta AGORA (mais antigo primeiro)
+  ranking: AttendantStat[]
 }
 
 // Análise completa por período [fromISO, toISO).
 export async function getAnalytics(fromISO: string, toISO: string): Promise<Analytics> {
-  const [leadsTotal, leadsPeriodo, emAberto, fechadas, emAtendimento] = await Promise.all([
+  const [leadsTotal, leadsPeriodo, fechadas, emAtendimento, convsRaw, sessRaw, msgs] = await Promise.all([
     count('contacts?select=id'),
     count(`contacts?select=id&created_at=gte.${fromISO}&created_at=lt.${toISO}`),
-    count('conversations?select=contact_id&last_from_me=is.false'),
     count(`flow_sessions?select=contact_id&status=eq.done&updated_at=gte.${fromISO}&updated_at=lt.${toISO}`),
     count('flow_sessions?select=contact_id&status=eq.handoff'),
-  ])
+    // conversas onde o PACIENTE falou por último (candidatas a "aguardando")
+    rest('conversations?select=contact_id,name,phone,last_text,last_sent_at&last_from_me=is.false&order=last_sent_at.asc.nullslast&limit=300').then((r) => r.json()),
+    rest('flow_sessions?select=contact_id,status').then((r) => r.json()),
+    rest(`messages?select=from_me,sent_at,contact_id,sent_by&sent_at=gte.${fromISO}&sent_at=lt.${toISO}&order=contact_id,sent_at.asc&limit=20000`).then((r) => r.json()),
+  ]) as [number, number, number, number, { contact_id: string; name: string | null; phone: string | null; last_text: string | null; last_sent_at: string | null }[], { contact_id: string; status: string }[], { from_me: boolean; sent_at: string; contact_id: string; sent_by: string | null }[]]
 
-  // Mensagens do período (para contagens e tempo de resposta).
-  const msgs: { from_me: boolean; sent_at: string; contact_id: string }[] = await (
-    await rest(`messages?select=from_me,sent_at,contact_id&sent_at=gte.${fromISO}&sent_at=lt.${toISO}&order=contact_id,sent_at.asc&limit=10000`)
-  ).json()
+  // ── Leads AGUARDANDO resposta agora (exclui os concluídos) ──
+  const doneSet = new Set(sessRaw.filter((s) => s.status === 'done').map((s) => s.contact_id))
+  const now = Date.now()
+  const waiting: WaitingLead[] = convsRaw
+    .filter((c) => !doneSet.has(c.contact_id))
+    .map((c) => ({
+      contact_id: c.contact_id,
+      name: c.name,
+      phone: c.phone,
+      last_text: c.last_text,
+      waitingMin: c.last_sent_at ? Math.max(0, Math.round((now - Date.parse(c.last_sent_at)) / 60000)) : 0,
+    }))
+    .sort((a, b) => b.waitingMin - a.waitingMin)
+  const emAberto = waiting.length
 
+  // ── Mensagens do período: contagens, tempo de resposta (geral e por atendente) ──
   let recebidas = 0
   let enviadas = 0
   const deltas: number[] = []
-  const pendente: Record<string, number> = {} // contato -> hora da 1ª msg do paciente sem resposta
+  const pendente: Record<string, number> = {}
+  const respostasContato = new Set<string>() // contatos que receberam ao menos 1 resposta
+  const recebidosContato = new Set<string>()
+  const attCount: Record<string, number> = {}
+  const attDeltas: Record<string, number[]> = {}
   for (const m of msgs) {
     const t = Date.parse(m.sent_at)
     if (m.from_me) {
       enviadas++
+      if (m.sent_by) attCount[m.sent_by] = (attCount[m.sent_by] || 0) + 1
       const p = pendente[m.contact_id]
       if (p != null) {
         const min = (t - p) / 60000
-        if (min >= 0 && min <= 720) deltas.push(min) // ignora gaps > 12h
+        if (min >= 0 && min <= 720) {
+          deltas.push(min)
+          if (m.sent_by) (attDeltas[m.sent_by] ??= []).push(min)
+        }
+        respostasContato.add(m.contact_id)
         delete pendente[m.contact_id]
       }
     } else {
       recebidas++
+      recebidosContato.add(m.contact_id)
       if (pendente[m.contact_id] == null) pendente[m.contact_id] = t
     }
   }
-  const tempoMedioRespMin = deltas.length ? Math.round(deltas.reduce((a, b) => a + b, 0) / deltas.length) : null
+  const avg = (a: number[]) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null)
+  const tempoMedioRespMin = avg(deltas)
+  const taxaResposta = recebidosContato.size ? Math.round((respostasContato.size / recebidosContato.size) * 100) : null
 
-  // Ranking de atendentes (precisa da coluna sent_by; se não existir, fica vazio).
-  let ranking: { atendente: string; respostas: number }[] = []
-  try {
-    const rows: { sent_by: string }[] = await (
-      await rest(`messages?select=sent_by&from_me=is.true&sent_by=not.is.null&sent_at=gte.${fromISO}&sent_at=lt.${toISO}&limit=10000`)
-    ).json()
-    const acc: Record<string, number> = {}
-    for (const r of rows) acc[r.sent_by] = (acc[r.sent_by] || 0) + 1
-    ranking = Object.entries(acc)
-      .map(([atendente, respostas]) => ({ atendente, respostas }))
-      .sort((a, b) => b.respostas - a.respostas)
-  } catch {
-    /* coluna sent_by ainda não criada */
-  }
+  // Ranking de atendentes: mensagens enviadas + tempo médio de resposta.
+  const ranking: AttendantStat[] = Object.keys(attCount)
+    .map((atendente) => ({ atendente, respostas: attCount[atendente], tempoRespMin: avg(attDeltas[atendente] ?? []) }))
+    .sort((a, b) => b.respostas - a.respostas)
 
-  return { leadsPeriodo, leadsTotal, emAberto, fechadas, emAtendimento, recebidas, enviadas, tempoMedioRespMin, ranking }
+  return { leadsPeriodo, leadsTotal, emAberto, fechadas, emAtendimento, recebidas, enviadas, tempoMedioRespMin, taxaResposta, waiting, ranking }
 }
 
 export async function getStats(): Promise<Stats> {

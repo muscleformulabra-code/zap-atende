@@ -92,6 +92,16 @@ export default function Inbox() {
     return () => clearInterval(t)
   }, [sel, loadMsgs, loadCard])
 
+  // Deep-link do painel: /inbox?c=<contact_id> abre a conversa direto.
+  const deepLinked = useRef(false)
+  useEffect(() => {
+    if (deepLinked.current || convs.length === 0) return
+    const c = new URLSearchParams(window.location.search).get('c')
+    if (!c) { deepLinked.current = true; return }
+    const found = convs.find((x) => x.contact_id === c)
+    if (found) { setSel(found); deepLinked.current = true }
+  }, [convs])
+
   function selecionar(c: Conversa) {
     setSel(c)
     setPlusOpen(false); setEmojiOpen(false); setFlowOpen(false); setAutoOpen(false)
