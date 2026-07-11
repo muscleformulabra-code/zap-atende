@@ -25,7 +25,8 @@ const baseHeaders = {
 // Salva/atualiza o contato (chave: jid). Só manda o nome quando temos um,
 // pra não sobrescrever com vazio.
 async function upsertContact({ jid, phone, name }) {
-  const row = { jid, phone }
+  const row = { jid }
+  if (phone) row.phone = phone // não sobrescreve com vazio (ex.: LID sem número real)
   if (name) row.name = name
 
   const res = await fetch(`${REST}/contacts?on_conflict=jid`, {

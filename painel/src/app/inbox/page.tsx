@@ -356,7 +356,7 @@ export default function Inbox() {
 
           {/* dados */}
           <div className="space-y-3 border-y border-gray-100 px-5 py-4 text-sm">
-            <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-gray-500">📱 Telefone</span><span className="text-gray-700">+{card?.phone ?? sel.phone ?? '—'}</span></div>
+            <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-gray-500">📱 Telefone</span><span className="text-gray-700" title={card?.phone || sel.phone ? '' : 'O WhatsApp ocultou o número deste contato (LID)'}>{(card?.phone || sel.phone) ? `+${card?.phone ?? sel.phone}` : '— (oculto)'}</span></div>
             <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-gray-500">✉️ E-mail</span><span className="text-gray-400">—</span></div>
             <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-gray-500">🗓️ Inscrição</span><span className="text-gray-700">{dataHora(card?.created_at ?? null)}</span></div>
           </div>

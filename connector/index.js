@@ -240,7 +240,16 @@ async function start() {
       }
       // WhatsApp novo usa @lid; normaliza pro número real (senderPn) quando recebemos.
       const jid = (!fromMe && (msg.key.senderPn || msg.key.participantPn)) || rawJid
-      const phone = jid.split('@')[0]
+      // Se ainda for LID (número escondido pelo WhatsApp), tenta resolver o número
+      // real pelo mapeamento; se não der, NÃO guarda o LID como "telefone".
+      let phone = jid.split('@')[0]
+      if (jid.endsWith('@lid')) {
+        phone = null
+        try {
+          const pn = await sock.signalRepository?.lidMapping?.getPNForLID?.(jid)
+          if (pn) phone = String(pn).split('@')[0]
+        } catch {}
+      }
       const name = msg.pushName || null
       const text = extractText(msg)
       const sentAt = msg.messageTimestamp
