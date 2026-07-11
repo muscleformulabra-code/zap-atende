@@ -12,6 +12,8 @@ import {
   useEdgesState,
   Handle,
   Position,
+  MarkerType,
+  ConnectionLineType,
   type Node,
   type Edge,
   type Connection,
@@ -52,7 +54,8 @@ const S: Record<BlockType, Style> = {
   handoff:     { accent: 'before:bg-orange-400',  chip: 'bg-orange-100 text-orange-700',   ring: 'ring-orange-400/60',  hover: 'hover:border-orange-300 hover:bg-orange-50/40',   handle: '!bg-orange-400',  label: 'text-orange-700' },
 }
 
-const HANDLE = '!h-3.5 !w-3.5 !border-2 !border-white !shadow'
+// Bolinhas de conexão maiores e visíveis (saída = arraste daqui; entrada = solte aqui).
+const HANDLE = '!h-5 !w-5 !border-[3px] !border-white !shadow-md transition-transform hover:!scale-125 !cursor-crosshair'
 
 function Shell({ type, selected, isStart, children }: { type: BlockType; selected?: boolean; isStart?: boolean; children: React.ReactNode }) {
   const m = blockMeta(type)
@@ -93,8 +96,8 @@ function bodyText(t: BlockType, d: NodeData): string {
 
 function NextRow({ type }: { type: BlockType }) {
   return (
-    <div className="relative flex items-center justify-end gap-1 border-t border-gray-100 bg-gray-50/60 px-4 py-1.5 text-[11px] font-medium text-gray-400">
-      Próximo passo →
+    <div className="relative flex items-center justify-end gap-1.5 border-t border-gray-100 bg-gray-50/70 px-4 py-2 pr-6 text-[11px] font-semibold text-gray-500">
+      arraste para ligar <span className={S[type].label}>→</span>
       <Handle type="source" position={Position.Right} className={`${HANDLE} ${S[type].handle}`} />
     </div>
   )
@@ -104,7 +107,7 @@ function NextRow({ type }: { type: BlockType }) {
 function SimpleNode({ type, data, selected }: NodeProps) {
   const t = type as BlockType
   const d = data as NodeData & { __start?: boolean }
-  const hasNext = t === 'message' || t === 'delay' || t === 'integration' || t === 'image'
+  const hasNext = t === 'message' || t === 'delay' || t === 'integration' || t === 'image' || t === 'video' || t === 'file' || t === 'audio' || t === 'tag'
   return (
     <Shell type={t} selected={selected} isStart={d.__start}>
       <Handle type="target" position={Position.Left} className={`${HANDLE} !bg-gray-300`} />
@@ -176,6 +179,10 @@ const nodeTypes = {
   delay: SimpleNode,
   integration: SimpleNode,
   image: SimpleNode,
+  video: SimpleNode,
+  file: SimpleNode,
+  audio: SimpleNode,
+  tag: SimpleNode,
   handoff: SimpleNode,
   action: SimpleNode,
   flowjump: SimpleNode,
@@ -340,7 +347,9 @@ export default function Construtor() {
             onConnect={onConnect}
             onNodeClick={(_, node) => setSelectedId(node.id)}
             onPaneClick={() => setSelectedId(null)}
-            defaultEdgeOptions={{ type: 'smoothstep', animated: true, style: { stroke: '#94a3b8', strokeWidth: 2 } }}
+            defaultEdgeOptions={{ type: 'smoothstep', animated: true, style: { stroke: '#10b981', strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: '#10b981', width: 18, height: 18 } }}
+            connectionLineType={ConnectionLineType.SmoothStep}
+            connectionLineStyle={{ stroke: '#10b981', strokeWidth: 2.5, strokeDasharray: '6 4' }}
             fitView
             proOptions={{ hideAttribution: true }}
           >
