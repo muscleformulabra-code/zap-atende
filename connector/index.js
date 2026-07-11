@@ -363,6 +363,58 @@ http
       })()
       return
     }
+    // TESTE de mensagens interativas (lista e botão nativos do WhatsApp).
+    // /testbtn?num=5561999998888  -> manda uma LISTA e um BOTÃO pra ver o que renderiza.
+    if (req.method === 'GET' && req.url.startsWith('/testbtn')) {
+      const u = new URL(req.url, 'http://x')
+      const num = (u.searchParams.get('num') || '').replace(/\D/g, '')
+      const rawJid = u.searchParams.get('jid') || ''
+      ;(async () => {
+        try {
+          if (!sock) throw new Error('sock nulo')
+          let target = rawJid
+          if (!target && num) {
+            const check = await sock.onWhatsApp(num).catch(() => null)
+            if (Array.isArray(check) && check[0]?.jid) target = check[0].jid
+          }
+          if (!target) throw new Error('informe ?num=<numero com DDD> ou ?jid=')
+          const out = {}
+          // 1) LISTA (Selecione aqui a opção)
+          try {
+            const sent = await sock.sendMessage(target, {
+              text: '🧪 Teste de *LISTA* — Gostaria de marcar sua consulta?',
+              footer: 'Ricco Chat',
+              title: 'Ricco Chat',
+              buttonText: 'Selecione aqui a opção',
+              sections: [{ title: 'Opções', rows: [
+                { title: 'Sim, me informe os horários', rowId: 'opt_sim' },
+                { title: 'Por enquanto não', rowId: 'opt_nao' },
+              ] }],
+            })
+            out.lista = sent?.key?.id ? 'enviada ✅' : 'sem id'
+          } catch (e) { out.lista = 'ERRO: ' + e.message }
+          // 2) BOTÕES
+          try {
+            const sent = await sock.sendMessage(target, {
+              text: '🧪 Teste de *BOTÕES* — Gostaria de marcar sua consulta?',
+              footer: 'Ricco Chat',
+              buttons: [
+                { buttonId: 'b_sim', buttonText: { displayText: '✅ Sim!' }, type: 1 },
+                { buttonId: 'b_nao', buttonText: { displayText: '❌ Não, obrigado' }, type: 1 },
+              ],
+              headerType: 1,
+            })
+            out.botoes = sent?.key?.id ? 'enviado ✅' : 'sem id'
+          } catch (e) { out.botoes = 'ERRO: ' + e.message }
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ target, ...out }))
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: e.message }))
+        }
+      })()
+      return
+    }
     // QR pelo navegador (útil quando o conector está no servidor remoto).
     if (req.method === 'GET' && req.url === '/qr') {
       const p = path.join(__dirname, 'qr.png')
