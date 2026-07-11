@@ -34,7 +34,7 @@ export type SessionState = {
 }
 
 export type Reply = { text?: string; image?: string; caption?: string }
-export type StepResult = { replies: Reply[]; state: SessionState }
+export type StepResult = { replies: Reply[]; state: SessionState; invalid?: boolean }
 
 function renderMenu(node: Extract<FlowNode, { type: 'menu' }>): string {
   const emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
@@ -156,7 +156,8 @@ export function advance(flows: Flows, state: SessionState, input: string): StepR
   if (node.type === 'menu') {
     const choice = matchOption(node, input)
     if (!choice) {
-      return { replies: [{ text: node.invalidText ?? `Não entendi. ${renderMenu(node)}` }], state }
+      // Resposta curta (NÃO repete o menu inteiro — evita cara de spam/ban).
+      return { replies: [{ text: node.invalidText ?? 'Não entendi 🤔 Responda com o *número* da opção que enviei acima (ex: 1).' }], state, invalid: true }
     }
     return runFrom(flows, state.flowId, choice.next, input)
   }
