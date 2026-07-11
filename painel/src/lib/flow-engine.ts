@@ -39,7 +39,7 @@ export type StepResult = { replies: Reply[]; state: SessionState; invalid?: bool
 function renderMenu(node: Extract<FlowNode, { type: 'menu' }>): string {
   const emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
   const lines = node.options.map((o, i) => `${emojis[i] ?? `${i + 1}.`} ${o.label}`)
-  return `${node.text}\n\n${lines.join('\n')}\n\n_Responda com o número da opção._`
+  return `${node.text}\n\n${lines.join('\n')}\n\n━━━━━━━━━━━━━\n👉 *Responda com APENAS o número* da opção (ex: 1).`
 }
 
 function matchOption(
@@ -157,7 +157,7 @@ export function advance(flows: Flows, state: SessionState, input: string): StepR
     const choice = matchOption(node, input)
     if (!choice) {
       // Resposta curta (NÃO repete o menu inteiro — evita cara de spam/ban).
-      return { replies: [{ text: node.invalidText ?? 'Não entendi 🤔 Responda com o *número* da opção que enviei acima (ex: 1).' }], state, invalid: true }
+      return { replies: [{ text: node.invalidText ?? 'Não entendi 🤔 Por favor, digite *APENAS o número* da opção que enviei acima (ex: 1).' }], state, invalid: true }
     }
     return runFrom(flows, state.flowId, choice.next, input)
   }
