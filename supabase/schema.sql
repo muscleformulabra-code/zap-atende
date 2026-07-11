@@ -80,8 +80,10 @@ create table if not exists flow_sessions (
   flow_id       uuid references flows(id) on delete set null,
   current_node  text,
   status        text not null default 'active',
+  assigned_to   text,                              -- atendente "dono" da conversa (nome)
   updated_at    timestamptz default now()
 );
+alter table flow_sessions add column if not exists assigned_to text;
 
 -- CONFIGURAÇÕES (linha única id=1): liga/desliga do robô, horário de
 -- atendimento, mensagem fora do horário e delays anti-ban.

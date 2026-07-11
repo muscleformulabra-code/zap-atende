@@ -170,6 +170,16 @@ export type ContactCard = {
   avatar_url: string | null
   created_at: string
   status: string
+  assigned_to: string | null
+}
+
+// Atribui (ou remove, com null) o atendente "dono" da conversa.
+export async function setAssigned(contactId: string, assignedTo: string | null): Promise<void> {
+  await rest('flow_sessions?on_conflict=contact_id', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ contact_id: contactId, assigned_to: assignedTo, updated_at: new Date().toISOString() }),
+  })
 }
 
 // ── Página de Contatos (lista, busca, criar, importar) ──
@@ -283,8 +293,8 @@ export async function getContactCard(contactId: string): Promise<ContactCard | n
   const rows = await (await rest(`contacts?id=eq.${contactId}&select=*`)).json()
   const contact = rows[0]
   if (!contact) return null
-  const sess = await (await rest(`flow_sessions?contact_id=eq.${contactId}&select=status`)).json()
-  return { ...contact, avatar_url: contact.avatar_url ?? null, status: sess[0]?.status ?? 'active' }
+  const sess = await (await rest(`flow_sessions?contact_id=eq.${contactId}&select=status,assigned_to`)).json()
+  return { ...contact, avatar_url: contact.avatar_url ?? null, status: sess[0]?.status ?? 'active', assigned_to: sess[0]?.assigned_to ?? null }
 }
 
 export type Stats = {

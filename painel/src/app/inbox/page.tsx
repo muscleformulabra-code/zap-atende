@@ -14,7 +14,8 @@ type Conversa = {
   status: string
 }
 type Msg = { id: string; from_me: boolean; text: string | null; sent_at: string | null }
-type Card = { id: string; name: string | null; phone: string | null; jid: string; avatar_url: string | null; created_at: string; status: string }
+type Card = { id: string; name: string | null; phone: string | null; jid: string; avatar_url: string | null; created_at: string; status: string; assigned_to: string | null }
+type Attendant = { id: string; email: string; name: string | null }
 type FlowItem = { id: string; name: string; is_active?: boolean }
 
 function hora(iso: string | null) {
@@ -51,6 +52,9 @@ export default function Inbox() {
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [flowOpen, setFlowOpen] = useState(false)
   const [autoOpen, setAutoOpen] = useState(false)
+  const [team, setTeam] = useState<Attendant[]>([])
+  const [myEmail, setMyEmail] = useState<string | null>(null)
+  const [assignOpen, setAssignOpen] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -58,6 +62,8 @@ export default function Inbox() {
   useEffect(() => {
     fetch('/api/quick-replies').then((r) => r.json()).then(setQuickReplies).catch(() => {})
     fetch('/api/flows').then((r) => r.json()).then(setFlows).catch(() => {})
+    fetch('/api/team').then((r) => r.json()).then(setTeam).catch(() => {})
+    fetch('/api/me').then((r) => r.json()).then((d) => setMyEmail(d.email ?? null)).catch(() => {})
   }, [])
 
   const showQR = text.startsWith('/')
@@ -104,7 +110,7 @@ export default function Inbox() {
 
   function selecionar(c: Conversa) {
     setSel(c)
-    setPlusOpen(false); setEmojiOpen(false); setFlowOpen(false); setAutoOpen(false)
+    setPlusOpen(false); setEmojiOpen(false); setFlowOpen(false); setAutoOpen(false); setAssignOpen(false)
   }
 
   useEffect(() => { endRef.current?.scrollIntoView() }, [msgs])
@@ -134,6 +140,13 @@ export default function Inbox() {
     setSel((s) => (s ? { ...s, status: novo } : s))
     setAutoOpen(false)
     loadConvs()
+  }
+
+  async function atribuir(name: string | null) {
+    if (!sel) return
+    setCard((c) => (c ? { ...c, assigned_to: name } : c))
+    setAssignOpen(false)
+    await fetch('/api/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contactId: sel.contact_id, assignedTo: name }) })
   }
 
   async function enviarFluxo(f: FlowItem) {
@@ -185,6 +198,8 @@ export default function Inbox() {
     })
   const abertasCount = convs.filter((c) => c.status !== 'done').length
   const curStatus = card?.status ?? sel?.status ?? 'active'
+  const myName = team.find((a) => (a.email || '').toLowerCase() === (myEmail || '').toLowerCase())?.name || myEmail?.split('@')[0] || 'Eu'
+  const assignedTo = card?.assigned_to ?? null
 
   return (
     <div className="flex h-full">
@@ -314,29 +329,43 @@ export default function Inbox() {
         )}
       </main>
 
-      {/* FICHA DO LEAD */}
+      {/* FICHA DO LEAD (padrão BotConversa) */}
       {sel && (
-        <aside className="w-72 shrink-0 overflow-y-auto border-l border-gray-200 bg-white">
-          <div className="flex flex-col items-center border-b border-gray-100 px-4 py-5">
-            <Avatar name={sel.name} phone={sel.phone} src={card?.avatar_url} className="h-16 w-16 text-xl" />
-            <div className="mt-2 text-center text-base font-semibold text-gray-800">{sel.name?.trim() || sel.phone || 'Sem nome'}</div>
-            <span className={`mt-2 rounded-full px-3 py-1 text-xs font-medium ${STATUS[curStatus]?.badge ?? STATUS.active.badge}`}>{STATUS[curStatus]?.label ?? STATUS.active.label}</span>
+        <aside className="w-80 shrink-0 overflow-y-auto border-l border-gray-200 bg-white">
+          {/* nome + avatar */}
+          <div className="flex flex-col items-center px-4 pb-3 pt-5">
+            <div className="mb-3 w-full truncate text-center text-lg font-bold text-gray-900">{sel.name?.trim() || sel.phone || 'Sem nome'}</div>
+            <Avatar name={sel.name} phone={sel.phone} src={card?.avatar_url} className="h-24 w-24 text-2xl" />
           </div>
 
-          <div className="space-y-3 border-b border-gray-100 px-4 py-4 text-sm">
-            <div className="flex items-center gap-2 text-gray-600"><span>📱</span><span>{card?.phone ?? sel.phone ?? '—'}</span></div>
-            <div className="flex items-center gap-2 text-gray-600"><span>✉️</span><span className="text-gray-400">—</span></div>
-            <div className="flex items-center gap-2 text-gray-600"><span>🗓️</span><span>Inscrição: {dataHora(card?.created_at ?? null)}</span></div>
+          {/* Atendimento está [status] [ação] */}
+          <div className="flex items-center justify-center gap-3 px-4 pb-4">
+            <span className="text-sm text-gray-500">Atendimento está</span>
+            {curStatus === 'done' ? (
+              <>
+                <span className="flex items-center gap-1 text-sm font-semibold text-emerald-600">Concluído ✓</span>
+                <button onClick={() => mudarStatus('handoff')} className="rounded-lg border border-sky-300 px-3 py-1 text-sm font-medium text-sky-600 hover:bg-sky-50">Reabrir ↻</button>
+              </>
+            ) : (
+              <>
+                <span className="text-sm font-semibold text-sky-600">Aberto</span>
+                <button onClick={() => mudarStatus('done')} className="rounded-lg border border-emerald-300 px-3 py-1 text-sm font-medium text-emerald-600 hover:bg-emerald-50">Concluir ✓</button>
+              </>
+            )}
           </div>
 
-          {/* CONTROLE DE AUTOMAÇÃO */}
-          <div className="border-b border-gray-100 px-4 py-4">
+          {/* dados */}
+          <div className="space-y-3 border-y border-gray-100 px-5 py-4 text-sm">
+            <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-gray-500">📱 Telefone</span><span className="text-gray-700">+{card?.phone ?? sel.phone ?? '—'}</span></div>
+            <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-gray-500">✉️ E-mail</span><span className="text-gray-400">—</span></div>
+            <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-gray-500">🗓️ Inscrição</span><span className="text-gray-700">{dataHora(card?.created_at ?? null)}</span></div>
+          </div>
+
+          {/* Automação */}
+          <div className="px-5 py-4">
             <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
               <button onClick={() => setAutoOpen((v) => !v)} className="flex w-full items-center justify-between text-left">
-                <span className="flex items-center gap-2 text-sm text-gray-600">
-                  <span>{curStatus === 'handoff' ? '⏸️' : curStatus === 'done' ? '✅' : '▶️'}</span>
-                  Automação {curStatus === 'active' ? 'ativa' : curStatus === 'handoff' ? 'pausada' : 'concluída'}
-                </span>
+                <span className="flex items-center gap-2 text-sm text-gray-600"><span>🤖</span>Automação está {curStatus === 'active' ? 'ligada' : curStatus === 'handoff' ? 'pausada' : 'concluída'}</span>
                 <span className={`text-gray-400 transition-transform ${autoOpen ? 'rotate-180' : ''}`}>▾</span>
               </button>
               {autoOpen && (
@@ -349,15 +378,26 @@ export default function Inbox() {
             </div>
           </div>
 
-          <div className="space-y-2 px-4 py-4">
-            {curStatus !== 'done' ? (
-              <button onClick={() => mudarStatus('done')} className="w-full rounded-xl bg-emerald-500 py-2.5 text-sm font-semibold text-white hover:bg-emerald-600">✓ Marcar como Concluído</button>
+          {/* Atribuição */}
+          <div className="space-y-2 px-5 pb-6">
+            {!assignedTo ? (
+              <button onClick={() => atribuir(myName)} className="w-full rounded-xl bg-sky-500 py-2.5 text-sm font-semibold text-white hover:bg-sky-600">Atribuir a mim</button>
             ) : (
-              <button onClick={() => mudarStatus('handoff')} className="w-full rounded-xl border border-emerald-500 py-2.5 text-sm font-semibold text-emerald-600 hover:bg-emerald-50">↩ Reabrir atendimento</button>
+              <div className="relative">
+                <button onClick={() => setAssignOpen((v) => !v)} className="flex w-full items-center justify-center gap-1 rounded-xl border border-sky-400 py-2.5 text-sm font-semibold text-sky-600 hover:bg-sky-50">
+                  Atribuído a {assignedTo} <span className={`transition-transform ${assignOpen ? 'rotate-180' : ''}`}>▾</span>
+                </button>
+                {assignOpen && (
+                  <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-xl">
+                    {assignedTo !== myName && <button onClick={() => atribuir(myName)} className="block w-full border-b border-gray-50 px-3 py-2 text-left text-sm text-sky-600 hover:bg-sky-50">Atribuir a mim ({myName})</button>}
+                    {team.filter((a) => (a.name || a.email) && (a.name || a.email) !== assignedTo).map((a) => (
+                      <button key={a.id} onClick={() => atribuir(a.name || a.email)} className="block w-full border-b border-gray-50 px-3 py-2 text-left text-sm text-gray-700 last:border-0 hover:bg-gray-50">{a.name || a.email}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
-            {curStatus === 'active' && (
-              <button onClick={() => mudarStatus('handoff')} className="w-full rounded-xl border border-gray-300 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50">🙋 Assumir (pausar automação)</button>
-            )}
+            {assignedTo && <button onClick={() => atribuir(null)} className="w-full py-1 text-center text-sm font-medium text-red-500 hover:underline">Remover Atribuição</button>}
           </div>
         </aside>
       )}
