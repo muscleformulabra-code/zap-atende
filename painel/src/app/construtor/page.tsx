@@ -44,6 +44,9 @@ const S: Record<BlockType, Style> = {
   delay:       { accent: 'before:bg-slate-400',   chip: 'bg-slate-100 text-slate-700',     ring: 'ring-slate-400/60',   hover: 'hover:border-slate-300 hover:bg-slate-50',        handle: '!bg-slate-400',   label: 'text-slate-700' },
   action:      { accent: 'before:bg-amber-400',   chip: 'bg-amber-100 text-amber-700',     ring: 'ring-amber-400/60',   hover: 'hover:border-amber-300 hover:bg-amber-50/40',     handle: '!bg-amber-400',   label: 'text-amber-700' },
   tag:         { accent: 'before:bg-lime-400',    chip: 'bg-lime-100 text-lime-700',       ring: 'ring-lime-400/60',    hover: 'hover:border-lime-300 hover:bg-lime-50/40',       handle: '!bg-lime-400',    label: 'text-lime-700' },
+  video:       { accent: 'before:bg-rose-400',    chip: 'bg-rose-100 text-rose-700',       ring: 'ring-rose-400/60',    hover: 'hover:border-rose-300 hover:bg-rose-50/40',       handle: '!bg-rose-400',    label: 'text-rose-700' },
+  file:        { accent: 'before:bg-slate-400',   chip: 'bg-slate-100 text-slate-700',     ring: 'ring-slate-400/60',   hover: 'hover:border-slate-300 hover:bg-slate-50',        handle: '!bg-slate-400',   label: 'text-slate-700' },
+  audio:       { accent: 'before:bg-violet-400',  chip: 'bg-violet-100 text-violet-700',   ring: 'ring-violet-400/60',  hover: 'hover:border-violet-300 hover:bg-violet-50/40',   handle: '!bg-violet-400',  label: 'text-violet-700' },
   flowjump:    { accent: 'before:bg-rose-400',    chip: 'bg-rose-100 text-rose-700',       ring: 'ring-rose-400/60',    hover: 'hover:border-rose-300 hover:bg-rose-50/40',       handle: '!bg-rose-400',    label: 'text-rose-700' },
   integration: { accent: 'before:bg-teal-400',    chip: 'bg-teal-100 text-teal-700',       ring: 'ring-teal-400/60',    hover: 'hover:border-teal-300 hover:bg-teal-50/40',       handle: '!bg-teal-400',    label: 'text-teal-700' },
   handoff:     { accent: 'before:bg-orange-400',  chip: 'bg-orange-100 text-orange-700',   ring: 'ring-orange-400/60',  hover: 'hover:border-orange-300 hover:bg-orange-50/40',   handle: '!bg-orange-400',  label: 'text-orange-700' },
@@ -77,6 +80,9 @@ function bodyText(t: BlockType, d: NodeData): string {
     case 'delay': return `⏱️ Espera ${d.seconds ?? 2}s mostrando “digitando…”`
     case 'integration': return d.url || 'URL não configurada'
     case 'image': return d.imageUrl ? `🖼️ ${d.caption || 'imagem'}` : 'Cole a URL da imagem…'
+    case 'video': return d.mediaUrl ? `🎬 ${d.caption || 'vídeo'}` : 'Envie ou cole a URL do vídeo…'
+    case 'file': return d.mediaUrl ? `📎 ${d.fileName || d.caption || 'arquivo'}` : 'Envie ou cole a URL do arquivo…'
+    case 'audio': return d.mediaUrl ? '🎵 áudio' : 'Envie ou cole a URL do áudio…'
     case 'handoff': return d.text || 'Passa para o atendente humano'
     case 'action': return d.action === 'end' ? '🛑 Encerrar conversa' : '🔄 Reiniciar automação (encerra após o clique)'
     case 'tag': return `${d.tagOp === 'remove' ? '➖ Remover' : '➕ Adicionar'} etiqueta: ${d.tagName?.trim() || '(defina o nome)'}`
@@ -180,7 +186,7 @@ const nodeTypes = {
 
 // Paleta agrupada (barra lateral esquerda).
 const GROUPS: { title: string; blocks: BlockType[] }[] = [
-  { title: 'Conteúdo', blocks: ['message', 'image', 'menu'] },
+  { title: 'Conteúdo', blocks: ['message', 'image', 'video', 'file', 'audio', 'menu'] },
   { title: 'Lógica', blocks: ['condition', 'randomizer', 'delay', 'action', 'tag'] },
   { title: 'Conexão', blocks: ['flowjump', 'integration', 'handoff'] },
 ]
@@ -443,8 +449,15 @@ export default function Construtor() {
 
               {selType === 'randomizer' && (
                 <div>
-                  <span className="text-xs font-medium text-gray-500">Caminhos aleatórios</span>
-                  <p className="mt-1 text-[11px] text-gray-400">O contato cai num deles por sorteio (bom pra testar mensagens).</p>
+                  <label className="block">
+                    <span className="text-xs font-medium text-gray-500">Tipo de seleção</span>
+                    <select value={selData?.randomMode ?? 'random'} onChange={(e) => updateData(selected.id, { randomMode: e.target.value as 'random' | 'sequential' })} className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm">
+                      <option value="random">🎲 Aleatório (sorteio)</option>
+                      <option value="sequential">🔁 Sequencial (um por um, em rodízio)</option>
+                    </select>
+                  </label>
+                  <span className="mt-3 block text-xs font-medium text-gray-500">Caminhos</span>
+                  <p className="mt-1 text-[11px] text-gray-400">No aleatório, cai num por sorteio. No sequencial, roda um a um em ordem (bom pra distribuir entre atendentes/mensagens).</p>
                   <div className="mt-2 flex items-center gap-2">
                     <button onClick={() => updateData(selected.id, { branches: [...(selData?.branches ?? []), { id: crypto.randomUUID().slice(0, 6) }] })} className="text-sm font-medium text-fuchsia-600 hover:underline">+ caminho</button>
                     <button onClick={() => { const b = selData?.branches ?? []; if (b.length <= 1) return; const last = b[b.length - 1]; updateData(selected.id, { branches: b.slice(0, -1) }); removeHandleEdges(selected.id, `br-${last.id}`) }} className="text-sm text-gray-400 hover:text-red-500">− remover</button>
@@ -503,6 +516,46 @@ export default function Construtor() {
                   ) : (
                     <p className="text-[11px] text-gray-400">Cole o link de uma imagem pública (ou faça upload no Supabase Storage e cole a URL).</p>
                   )}
+                </>
+              )}
+
+              {(selType === 'video' || selType === 'file' || selType === 'audio') && (
+                <>
+                  <label className="block">
+                    <span className="text-xs font-medium text-gray-500">📤 Enviar arquivo (fica hospedado sozinho)</span>
+                    <input
+                      type="file"
+                      accept={selType === 'video' ? 'video/*' : selType === 'audio' ? 'audio/*' : undefined}
+                      onChange={async (e) => {
+                        const f = e.target.files?.[0]
+                        if (!f) return
+                        updateData(selected.id, { mediaUrl: '' })
+                        const fd = new FormData(); fd.append('file', f)
+                        const r = await fetch('/api/upload', { method: 'POST', body: fd })
+                        const d = await r.json().catch(() => ({}))
+                        if (d.url) updateData(selected.id, selType === 'file' ? { mediaUrl: d.url, fileName: d.name } : { mediaUrl: d.url })
+                        else alert('Falha no upload: ' + (d.error || 'erro'))
+                      }}
+                      className="mt-1 w-full text-xs text-gray-600"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-medium text-gray-500">…ou cole a URL</span>
+                    <input value={selData?.mediaUrl ?? ''} onChange={(e) => updateData(selected.id, { mediaUrl: e.target.value })} placeholder="https://…" className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm outline-none focus:border-emerald-500" />
+                  </label>
+                  {selType === 'file' && (
+                    <label className="block">
+                      <span className="text-xs font-medium text-gray-500">Nome do arquivo (opcional)</span>
+                      <input value={selData?.fileName ?? ''} onChange={(e) => updateData(selected.id, { fileName: e.target.value })} placeholder="ex: preparo-do-exame.pdf" className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm outline-none focus:border-emerald-500" />
+                    </label>
+                  )}
+                  {(selType === 'video' || selType === 'file') && (
+                    <label className="block">
+                      <span className="text-xs font-medium text-gray-500">Legenda (opcional)</span>
+                      <input value={selData?.caption ?? ''} onChange={(e) => updateData(selected.id, { caption: e.target.value })} className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm outline-none focus:border-emerald-500" />
+                    </label>
+                  )}
+                  {selData?.mediaUrl && <p className="break-all text-[11px] text-emerald-600">✅ pronto: …{selData.mediaUrl.slice(-40)}</p>}
                 </>
               )}
             </div>

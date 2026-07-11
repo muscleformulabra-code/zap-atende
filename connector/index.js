@@ -60,11 +60,19 @@ async function botSend(sock, target, reply, settings, contactId) {
   let sent
   if (r.image) {
     sent = await sock.sendMessage(target, { image: { url: r.image }, caption: r.caption || '' })
+  } else if (r.video) {
+    sent = await sock.sendMessage(target, { video: { url: r.video }, caption: r.caption || '' })
+  } else if (r.file) {
+    const name = r.fileName || 'arquivo'
+    const isPdf = /\.pdf(\?|$)/i.test(name) || /\.pdf(\?|$)/i.test(r.file)
+    sent = await sock.sendMessage(target, { document: { url: r.file }, fileName: name, mimetype: isPdf ? 'application/pdf' : 'application/octet-stream', caption: r.caption || '' })
+  } else if (r.audio) {
+    sent = await sock.sendMessage(target, { audio: { url: r.audio }, mimetype: 'audio/mpeg' })
   } else {
     sent = await sock.sendMessage(target, { text: r.text })
   }
   try {
-    const label = r.text || r.caption || (r.image ? '[imagem]' : '')
+    const label = r.text || r.caption || (r.image ? '[imagem]' : r.video ? '[vídeo]' : r.file ? `[${r.fileName || 'documento'}]` : r.audio ? '[áudio]' : '')
     await insertMessage({ contactId, jid: target, fromMe: true, text: label, waMessageId: sent?.key?.id, sentAt: new Date().toISOString() })
   } catch {}
 }

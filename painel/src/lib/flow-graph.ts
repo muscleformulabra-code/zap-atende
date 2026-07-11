@@ -14,6 +14,9 @@ export type BlockType =
   | 'flowjump'
   | 'integration'
   | 'image'
+  | 'video'
+  | 'file'
+  | 'audio'
 
 export type MenuOption = { id: string; label: string }
 export type Branch = { id: string }
@@ -26,13 +29,16 @@ export type NodeData = {
   tagName?: string // tag
   keyword?: string // condition
   branches?: Branch[] // randomizer
+  randomMode?: 'random' | 'sequential' // randomizer
   seconds?: number // delay
   flowId?: string // flowjump
   flowName?: string // flowjump (só p/ exibir)
   url?: string // integration
   method?: string // integration
   imageUrl?: string // image
-  caption?: string // image
+  mediaUrl?: string // video / file / audio
+  fileName?: string // file
+  caption?: string // image / video / file
 }
 
 export type GraphNode = {
@@ -66,6 +72,9 @@ const META: Record<BlockType, { label: string; emoji: string; color: string }> =
   flowjump: { label: 'Conexão de fluxo', emoji: '🚀', color: 'rose' },
   integration: { label: 'Integração', emoji: '🔌', color: 'teal' },
   image: { label: 'Imagem', emoji: '🖼️', color: 'pink' },
+  video: { label: 'Vídeo', emoji: '🎬', color: 'rose' },
+  file: { label: 'Arquivo', emoji: '📎', color: 'slate' },
+  audio: { label: 'Áudio', emoji: '🎵', color: 'violet' },
 }
 
 export function blockMeta(type: BlockType) {
@@ -118,6 +127,7 @@ export function graphToFlow(graph: FlowGraph): Flow {
       case 'randomizer':
         nodes[n.id] = {
           type: 'randomizer',
+          mode: d.randomMode ?? 'random',
           branches: (d.branches ?? []).map((b) => ({ next: edgeTarget(graph.edges, n.id, `br-${b.id}`) })),
         }
         break
@@ -132,6 +142,15 @@ export function graphToFlow(graph: FlowGraph): Flow {
         break
       case 'image':
         nodes[n.id] = { type: 'image', url: d.imageUrl ?? '', caption: d.caption, next: edgeTarget(graph.edges, n.id) }
+        break
+      case 'video':
+        nodes[n.id] = { type: 'video', url: d.mediaUrl ?? '', caption: d.caption, next: edgeTarget(graph.edges, n.id) }
+        break
+      case 'file':
+        nodes[n.id] = { type: 'file', url: d.mediaUrl ?? '', fileName: d.fileName, caption: d.caption, next: edgeTarget(graph.edges, n.id) }
+        break
+      case 'audio':
+        nodes[n.id] = { type: 'audio', url: d.mediaUrl ?? '', next: edgeTarget(graph.edges, n.id) }
         break
     }
   }
@@ -154,7 +173,7 @@ export function newBlockData(type: BlockType): NodeData {
     case 'condition':
       return { keyword: '' }
     case 'randomizer':
-      return { branches: [{ id: rid() }, { id: rid() }] }
+      return { branches: [{ id: rid() }, { id: rid() }], randomMode: 'random' }
     case 'delay':
       return { seconds: 2 }
     case 'flowjump':
@@ -163,6 +182,12 @@ export function newBlockData(type: BlockType): NodeData {
       return { url: '', method: 'GET' }
     case 'image':
       return { imageUrl: '', caption: '' }
+    case 'video':
+      return { mediaUrl: '', caption: '' }
+    case 'file':
+      return { mediaUrl: '', fileName: '', caption: '' }
+    case 'audio':
+      return { mediaUrl: '' }
     default:
       return { text: 'Nova mensagem' }
   }

@@ -12,11 +12,14 @@ export type FlowNode =
   | { type: 'action'; action: 'restart' | 'end'; next?: string }
   | { type: 'tag'; op: 'add' | 'remove'; tag: string; next?: string }
   | { type: 'condition'; keyword: string; yes?: string; no?: string }
-  | { type: 'randomizer'; branches: { next?: string }[] }
+  | { type: 'randomizer'; mode?: 'random' | 'sequential'; branches: { next?: string }[] }
   | { type: 'delay'; seconds: number; next?: string }
   | { type: 'flowjump'; flowId: string }
   | { type: 'integration'; url?: string; method?: string; next?: string }
   | { type: 'image'; url: string; caption?: string; next?: string }
+  | { type: 'video'; url: string; caption?: string; next?: string }
+  | { type: 'file'; url: string; fileName?: string; caption?: string; next?: string }
+  | { type: 'audio'; url: string; next?: string }
   | { type: 'goto'; next: string }
 
 export type Flow = {
@@ -34,7 +37,10 @@ export type SessionState = {
   status: SessionStatus
 }
 
-export type Reply = { text?: string; image?: string; caption?: string }
+export type Reply = { text?: string; image?: string; video?: string; file?: string; audio?: string; fileName?: string; caption?: string }
+
+// Contador de rodízio do randomizador sequencial (na memória do processo).
+const seqCounters = new Map<string, number>()
 export type TagOp = { op: 'add' | 'remove'; tag: string }
 export type StepResult = { replies: Reply[]; state: SessionState; invalid?: boolean; tagOps?: TagOp[] }
 
@@ -112,8 +118,15 @@ function runFrom(
       }
       case 'randomizer': {
         const list = node.branches ?? []
-        const pick = list[Math.floor(Math.random() * Math.max(list.length, 1))]
-        current = pick?.next ?? null
+        let idx = Math.floor(Math.random() * Math.max(list.length, 1))
+        if (node.mode === 'sequential' && list.length > 0) {
+          // Rodízio: pega o próximo em ordem (contador na memória do processo).
+          const k = `${flowId}:${current}`
+          idx = (seqCounters.get(k) ?? -1) + 1
+          if (idx >= list.length) idx = 0
+          seqCounters.set(k, idx)
+        }
+        current = list[idx]?.next ?? null
         break
       }
       case 'flowjump': {
@@ -135,6 +148,18 @@ function runFrom(
         break
       case 'image':
         replies.push({ image: node.url, caption: node.caption })
+        current = node.next ?? null
+        break
+      case 'video':
+        replies.push({ video: node.url, caption: node.caption })
+        current = node.next ?? null
+        break
+      case 'file':
+        replies.push({ file: node.url, fileName: node.fileName, caption: node.caption })
+        current = node.next ?? null
+        break
+      case 'audio':
+        replies.push({ audio: node.url })
         current = node.next ?? null
         break
       case 'menu':
