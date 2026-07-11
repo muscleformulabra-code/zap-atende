@@ -45,8 +45,10 @@ function wipeAuth() {
 }
 
 // Envia uma resposta do bot (texto OU imagem) com "digitando…" e atraso
-// aleatório (humanizado) — salvaguarda anti-ban.
-async function botSend(sock, target, reply, settings) {
+// aleatório (humanizado) — salvaguarda anti-ban. Também GRAVA a mensagem no
+// banco (senão as mensagens do bot só apareciam se o "eco" do WhatsApp fosse
+// pego — o que nem sempre acontece). O eco depois é deduplicado pelo wa_message_id.
+async function botSend(sock, target, reply, settings, contactId) {
   const r = typeof reply === 'string' ? { text: reply } : reply
   const min = settings?.min_delay_ms ?? 1200
   const max = Math.max(settings?.max_delay_ms ?? 3500, min)
@@ -55,11 +57,16 @@ async function botSend(sock, target, reply, settings) {
     await sock.sendPresenceUpdate('composing', target)
   } catch {}
   await new Promise((res) => setTimeout(res, wait))
+  let sent
   if (r.image) {
-    await sock.sendMessage(target, { image: { url: r.image }, caption: r.caption || '' })
+    sent = await sock.sendMessage(target, { image: { url: r.image }, caption: r.caption || '' })
   } else {
-    await sock.sendMessage(target, { text: r.text })
+    sent = await sock.sendMessage(target, { text: r.text })
   }
+  try {
+    const label = r.text || r.caption || (r.image ? '[imagem]' : '')
+    await insertMessage({ contactId, jid: target, fromMe: true, text: label, waMessageId: sent?.key?.id, sentAt: new Date().toISOString() })
+  } catch {}
 }
 
 // A mensagem é um anexo de mídia? (foto, vídeo, áudio, documento, figurinha)
@@ -277,7 +284,7 @@ async function start() {
               diag.botPath = 'fluxo'
               diag.lastReplyCount = replies.length
               for (const r of replies) {
-                await botSend(sock, target, r, settings)
+                await botSend(sock, target, r, settings, contact.id)
                 diag.botReplies++
                 console.log('   ↳ enviou:', (r.text || (r.image ? '[imagem]' : '')).slice(0, 40))
               }
