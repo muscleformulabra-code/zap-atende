@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react'
 import { DEFAULT_MEMBER, PERM_LIST, normalizePerms, type PermKey, type Perms } from '@/lib/perms'
 
-type User = { id: string; email: string; created_at: string; perms: Perms | null }
+type User = { id: string; email: string; name: string | null; created_at: string; perms: Perms | null }
 
 export default function Equipe() {
   const [users, setUsers] = useState<User[]>([])
   const [adding, setAdding] = useState(false)
+  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [newPerms, setNewPerms] = useState<Perms>({ ...DEFAULT_MEMBER })
@@ -26,13 +27,20 @@ export default function Equipe() {
       const r = await fetch('/api/team', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, perms: newPerms }),
+        body: JSON.stringify({ name, email, password, perms: newPerms }),
       })
       const d = await r.json()
       if (!r.ok) { setMsg('❌ ' + (d.error || 'erro')); return }
-      setEmail(''); setPassword(''); setNewPerms({ ...DEFAULT_MEMBER }); setAdding(false); setMsg('✅ atendente criado')
+      setName(''); setEmail(''); setPassword(''); setNewPerms({ ...DEFAULT_MEMBER }); setAdding(false); setMsg('✅ atendente criado')
       load()
     } finally { setBusy(false) }
+  }
+
+  async function renomear(u: User) {
+    const novo = prompt(`Nome do atendente (aparece nas mensagens):`, u.name || '')
+    if (novo === null) return
+    setUsers((list) => list.map((x) => (x.id === u.id ? { ...x, name: novo.trim() || null } : x)))
+    await fetch('/api/team', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: u.id, name: novo }) }).catch(() => load())
   }
 
   async function togglePerm(u: User, key: PermKey) {
@@ -68,6 +76,10 @@ export default function Equipe() {
         <form onSubmit={criar} className="mb-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
           <div className="font-medium text-gray-800">Novo atendente</div>
           <div className="mt-3 flex flex-wrap items-end gap-2">
+            <label className="flex-1">
+              <span className="text-xs text-gray-500">Nome (aparece nas mensagens)</span>
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex: Isabella Martins" required className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm outline-none focus:border-emerald-500" />
+            </label>
             <label className="flex-1">
               <span className="text-xs text-gray-500">E-mail</span>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm outline-none focus:border-emerald-500" />
@@ -122,10 +134,14 @@ export default function Equipe() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-[11px] font-semibold text-white">
-                        {u.email.slice(0, 2).toUpperCase()}
+                        {(u.name || u.email).slice(0, 2).toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <div className="truncate text-gray-800">{u.email}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="truncate font-medium text-gray-800">{u.name || <span className="text-gray-400">sem nome</span>}</span>
+                          <button onClick={() => renomear(u)} className="text-[11px] text-emerald-600 hover:underline">editar</button>
+                        </div>
+                        <div className="truncate text-xs text-gray-400">{u.email}</div>
                         {admin && <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">dono / admin</span>}
                       </div>
                     </div>
