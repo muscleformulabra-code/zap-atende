@@ -43,6 +43,7 @@ const S: Record<BlockType, Style> = {
   randomizer:  { accent: 'before:bg-fuchsia-400', chip: 'bg-fuchsia-100 text-fuchsia-700', ring: 'ring-fuchsia-400/60', hover: 'hover:border-fuchsia-300 hover:bg-fuchsia-50/40', handle: '!bg-fuchsia-400', label: 'text-fuchsia-700' },
   delay:       { accent: 'before:bg-slate-400',   chip: 'bg-slate-100 text-slate-700',     ring: 'ring-slate-400/60',   hover: 'hover:border-slate-300 hover:bg-slate-50',        handle: '!bg-slate-400',   label: 'text-slate-700' },
   action:      { accent: 'before:bg-amber-400',   chip: 'bg-amber-100 text-amber-700',     ring: 'ring-amber-400/60',   hover: 'hover:border-amber-300 hover:bg-amber-50/40',     handle: '!bg-amber-400',   label: 'text-amber-700' },
+  tag:         { accent: 'before:bg-lime-400',    chip: 'bg-lime-100 text-lime-700',       ring: 'ring-lime-400/60',    hover: 'hover:border-lime-300 hover:bg-lime-50/40',       handle: '!bg-lime-400',    label: 'text-lime-700' },
   flowjump:    { accent: 'before:bg-rose-400',    chip: 'bg-rose-100 text-rose-700',       ring: 'ring-rose-400/60',    hover: 'hover:border-rose-300 hover:bg-rose-50/40',       handle: '!bg-rose-400',    label: 'text-rose-700' },
   integration: { accent: 'before:bg-teal-400',    chip: 'bg-teal-100 text-teal-700',       ring: 'ring-teal-400/60',    hover: 'hover:border-teal-300 hover:bg-teal-50/40',       handle: '!bg-teal-400',    label: 'text-teal-700' },
   handoff:     { accent: 'before:bg-orange-400',  chip: 'bg-orange-100 text-orange-700',   ring: 'ring-orange-400/60',  hover: 'hover:border-orange-300 hover:bg-orange-50/40',   handle: '!bg-orange-400',  label: 'text-orange-700' },
@@ -78,6 +79,7 @@ function bodyText(t: BlockType, d: NodeData): string {
     case 'image': return d.imageUrl ? `🖼️ ${d.caption || 'imagem'}` : 'Cole a URL da imagem…'
     case 'handoff': return d.text || 'Passa para o atendente humano'
     case 'action': return d.action === 'end' ? '🛑 Encerrar conversa' : '🔄 Reiniciar automação (encerra após o clique)'
+    case 'tag': return `${d.tagOp === 'remove' ? '➖ Remover' : '➕ Adicionar'} etiqueta: ${d.tagName?.trim() || '(defina o nome)'}`
     case 'flowjump': return d.flowName ? `→ ${d.flowName}` : 'Escolha um fluxo de destino…'
     default: return ''
   }
@@ -179,7 +181,7 @@ const nodeTypes = {
 // Paleta agrupada (barra lateral esquerda).
 const GROUPS: { title: string; blocks: BlockType[] }[] = [
   { title: 'Conteúdo', blocks: ['message', 'image', 'menu'] },
-  { title: 'Lógica', blocks: ['condition', 'randomizer', 'delay', 'action'] },
+  { title: 'Lógica', blocks: ['condition', 'randomizer', 'delay', 'action', 'tag'] },
   { title: 'Conexão', blocks: ['flowjump', 'integration', 'handoff'] },
 ]
 
@@ -410,6 +412,23 @@ export default function Construtor() {
                   </select>
                   <p className="mt-1 text-[11px] text-gray-400">A automação <b>para</b> depois deste bloco — o paciente pode clicar à vontade que não vira spam. O atendente assume pelo inbox.</p>
                 </label>
+              )}
+
+              {selType === 'tag' && (
+                <>
+                  <label className="block">
+                    <span className="text-xs font-medium text-gray-500">O que fazer</span>
+                    <select value={selData?.tagOp ?? 'add'} onChange={(e) => updateData(selected.id, { tagOp: e.target.value as 'add' | 'remove' })} className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm">
+                      <option value="add">➕ Adicionar etiqueta</option>
+                      <option value="remove">➖ Remover etiqueta</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-medium text-gray-500">Nome da etiqueta</span>
+                    <input value={selData?.tagName ?? ''} onChange={(e) => updateData(selected.id, { tagName: e.target.value })} placeholder="ex: lead-cardiologia" className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm outline-none focus:border-lime-500" />
+                  </label>
+                  <p className="text-[11px] text-gray-400">A etiqueta é marcada no contato quando o fluxo passa por aqui. Use pra segmentar (ex: quem escolhe Cardiologia). O bloco <b>segue direto</b> pro próximo.</p>
+                </>
               )}
 
               {selType === 'condition' && (

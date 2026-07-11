@@ -18,7 +18,7 @@ const http = require('http')
 const fs = require('fs')
 const pino = require('pino')
 
-const { upsertContact, insertMessage, updateAvatar, setSessionDone, keyInfo } = require('./supabase')
+const { upsertContact, insertMessage, updateAvatar, setSessionDone, applyTagOps, keyInfo } = require('./supabase')
 const BAILEYS_VERSION = (() => { try { return require('@whiskeysockets/baileys/package.json').version } catch { return '?' } })()
 const { handleIncoming, getSettings, isWithinHours } = require('./bot')
 
@@ -275,12 +275,14 @@ async function start() {
               diag.botPath = 'bot_desligado'
             } else {
               // Sem mensagem de "fora de horário": o bot responde/roteia sempre.
-              const { replies } = await handleIncoming(contact.id, text, {
+              const { replies, tagOps } = await handleIncoming(contact.id, text, {
                 reengageHours: settings?.reengage_hours ?? 12,
                 isMedia: isMediaMsg(msg),
                 defaultFlowId: settings?.default_flow_id ?? null,
                 mediaFlowId: settings?.media_flow_id ?? null,
               })
+              // Bloco Etiqueta: grava as etiquetas que o fluxo marcou.
+              await applyTagOps(contact.id, tagOps).catch(() => {})
               diag.botPath = 'fluxo'
               diag.lastReplyCount = replies.length
               for (const r of replies) {

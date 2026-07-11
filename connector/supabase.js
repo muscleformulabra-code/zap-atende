@@ -86,7 +86,30 @@ async function setSessionDone(contactId, updatedAt) {
   }
 }
 
+// Aplica operações de etiqueta (add/remove) no contato (bloco Etiqueta do fluxo).
+async function applyTagOps(contactId, tagOps) {
+  if (!contactId || !Array.isArray(tagOps) || tagOps.length === 0) return
+  try {
+    const r = await fetch(`${REST}/contacts?id=eq.${contactId}&select=tags`, { headers: baseHeaders })
+    const rows = await r.json()
+    let tags = Array.isArray(rows[0]?.tags) ? rows[0].tags.slice() : []
+    for (const op of tagOps) {
+      const t = (op.tag || '').trim()
+      if (!t) continue
+      if (op.op === 'remove') tags = tags.filter((x) => x !== t)
+      else if (!tags.includes(t)) tags.push(t)
+    }
+    await fetch(`${REST}/contacts?id=eq.${contactId}`, {
+      method: 'PATCH',
+      headers: { ...baseHeaders, Prefer: 'return=minimal' },
+      body: JSON.stringify({ tags }),
+    })
+  } catch {
+    /* coluna tags pode não existir ainda — ignora */
+  }
+}
+
 // Impressão digital da chave (sem expor o segredo) pra diagnóstico.
 const keyInfo = { len: KEY.length, head: KEY.slice(0, 6), tail: KEY.slice(-4) }
 
-module.exports = { upsertContact, insertMessage, updateAvatar, setSessionDone, keyInfo }
+module.exports = { upsertContact, insertMessage, updateAvatar, setSessionDone, applyTagOps, keyInfo }

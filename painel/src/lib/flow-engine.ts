@@ -10,6 +10,7 @@ export type FlowNode =
   | { type: 'menu'; text: string; options: { label: string; next: string }[]; invalidText?: string }
   | { type: 'handoff'; text?: string }
   | { type: 'action'; action: 'restart' | 'end'; next?: string }
+  | { type: 'tag'; op: 'add' | 'remove'; tag: string; next?: string }
   | { type: 'condition'; keyword: string; yes?: string; no?: string }
   | { type: 'randomizer'; branches: { next?: string }[] }
   | { type: 'delay'; seconds: number; next?: string }
@@ -34,7 +35,8 @@ export type SessionState = {
 }
 
 export type Reply = { text?: string; image?: string; caption?: string }
-export type StepResult = { replies: Reply[]; state: SessionState; invalid?: boolean }
+export type TagOp = { op: 'add' | 'remove'; tag: string }
+export type StepResult = { replies: Reply[]; state: SessionState; invalid?: boolean; tagOps?: TagOp[] }
 
 function renderMenu(node: Extract<FlowNode, { type: 'menu' }>): string {
   const emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
@@ -64,6 +66,7 @@ function runFrom(
   lastInput: string
 ): StepResult {
   const replies: Reply[] = []
+  const tagOps: TagOp[] = []
   const visited = new Set<string>()
   let flowId = startFlowId
   let current: string | null = startNode
@@ -100,7 +103,7 @@ function runFrom(
         // "Encerrar atendimento" = PARA a automação (anti-spam / evita ban).
         // A sessão fica 'done'; o atendente assume e o re-engajamento (12h)
         // reinicia depois.
-        return { replies, state: { flowId, currentNode: null, status: 'done' } }
+        return { replies, state: { flowId, currentNode: null, status: 'done' }, tagOps }
       case 'condition': {
         const hit = node.keyword.trim().length > 0 &&
           lastInput.toLowerCase().includes(node.keyword.trim().toLowerCase())
@@ -120,6 +123,12 @@ function runFrom(
         current = target.start
         break
       }
+      case 'tag':
+        // Marca/desmarca uma etiqueta no contato. O efeito real (gravar no
+        // banco) fica pro conector; aqui a gente só acumula a operação.
+        if (node.tag) tagOps.push({ op: node.op, tag: node.tag })
+        current = node.next ?? null
+        break
       case 'integration':
         // Simulador: passa direto (a chamada HTTP real fica pro conector).
         current = node.next ?? null
@@ -130,10 +139,10 @@ function runFrom(
         break
       case 'menu':
         replies.push({ text: renderMenu(node) })
-        return { replies, state: { flowId, currentNode: current, status: 'active' } }
+        return { replies, state: { flowId, currentNode: current, status: 'active' }, tagOps }
       case 'handoff':
         if (node.text) replies.push({ text: node.text })
-        return { replies, state: { flowId, currentNode: current, status: 'handoff' } }
+        return { replies, state: { flowId, currentNode: current, status: 'handoff' }, tagOps }
     }
   }
   return { replies, state: { flowId, currentNode: null, status: 'done' } }

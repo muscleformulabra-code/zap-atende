@@ -7,6 +7,7 @@ export type BlockType =
   | 'menu'
   | 'handoff'
   | 'action'
+  | 'tag'
   | 'condition'
   | 'randomizer'
   | 'delay'
@@ -21,6 +22,8 @@ export type NodeData = {
   text?: string
   options?: MenuOption[] // menu
   action?: 'restart' | 'end' // action
+  tagOp?: 'add' | 'remove' // tag
+  tagName?: string // tag
   keyword?: string // condition
   branches?: Branch[] // randomizer
   seconds?: number // delay
@@ -56,6 +59,7 @@ const META: Record<BlockType, { label: string; emoji: string; color: string }> =
   menu: { label: 'Menu', emoji: '📋', color: 'indigo' },
   handoff: { label: 'Atendente', emoji: '🙋', color: 'amber' },
   action: { label: 'Ação', emoji: '⚡', color: 'yellow' },
+  tag: { label: 'Etiqueta', emoji: '🏷️', color: 'lime' },
   condition: { label: 'Condição', emoji: '🔀', color: 'sky' },
   randomizer: { label: 'Randomizador', emoji: '🎲', color: 'fuchsia' },
   delay: { label: 'Atraso', emoji: '⏱️', color: 'slate' },
@@ -100,6 +104,9 @@ export function graphToFlow(graph: FlowGraph): Flow {
       case 'action':
         nodes[n.id] = { type: 'action', action: d.action ?? 'restart', next: edgeTarget(graph.edges, n.id) }
         break
+      case 'tag':
+        nodes[n.id] = { type: 'tag', op: d.tagOp ?? 'add', tag: (d.tagName ?? '').trim(), next: edgeTarget(graph.edges, n.id) }
+        break
       case 'condition':
         nodes[n.id] = {
           type: 'condition',
@@ -142,6 +149,8 @@ export function newBlockData(type: BlockType): NodeData {
       return { text: 'Vou te transferir para um atendente. 🙂' }
     case 'action':
       return { action: 'restart' }
+    case 'tag':
+      return { tagOp: 'add', tagName: '' }
     case 'condition':
       return { keyword: '' }
     case 'randomizer':
