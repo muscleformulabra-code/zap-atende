@@ -7,6 +7,9 @@ const KEY = process.env.SUPABASE_SERVICE_KEY
 const REST = `${SUPABASE_URL}/rest/v1`
 const H = { apikey: KEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' }
 
+// Conta respostas inválidas por contato num menu (na memória; zera no restart).
+const invalidCount = new Map()
+
 async function getSession(contactId) {
   const res = await fetch(`${REST}/flow_sessions?contact_id=eq.${contactId}&select=*&limit=1`, { headers: H })
   const rows = await res.json()
@@ -124,6 +127,23 @@ async function handleIncoming(contactId, text, opts = {}) {
 
   // Fluxo ativo → avança.
   const result = await callBot(session, text)
+
+  // Limite de 2 erros num menu: se o paciente responde algo inválido 2x, o bot
+  // FICA QUIETO (status atendimento) — o atendente que já acompanha assume, sem
+  // mensagem de "vou transferir". 1º erro ainda manda o lembrete curto.
+  if (result.invalid) {
+    const n = (invalidCount.get(contactId) || 0) + 1
+    if (n >= 2) {
+      invalidCount.delete(contactId)
+      await saveSession(contactId, { flowId: result.state.flowId, currentNode: result.state.currentNode, status: 'handoff' })
+      return { replies: [] } // sem repetir, sem "transferindo" — atendente assume
+    }
+    invalidCount.set(contactId, n)
+    await saveSession(contactId, result.state)
+    return result
+  }
+
+  invalidCount.delete(contactId) // resposta válida → zera o contador
   await saveSession(contactId, result.state)
   return result
 }
