@@ -31,6 +31,18 @@ export type FlowRow = {
   definition: FlowGraph
   updated_at: string
   folder_id?: string | null
+  executions?: number
+  connections?: number
+}
+
+// Incrementa as métricas do fluxo (execução = entrada; connection = clique).
+// Fire-and-forget: não trava o bot se falhar (ex.: colunas ainda não migradas).
+export async function bumpFlowMetric(flowId: string, exec: number, conn: number): Promise<void> {
+  try {
+    await req('rpc/increment_flow_metric', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ p_flow_id: flowId, p_exec: exec, p_conn: conn }) })
+  } catch {
+    /* função/colunas ainda não migradas — ignora */
+  }
 }
 
 export type FlowFolder = { id: string; name: string; count: number }

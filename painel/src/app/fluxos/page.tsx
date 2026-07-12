@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
-type FlowItem = { id: string; name: string; is_active: boolean; updated_at: string; folder_id: string | null }
+type FlowItem = { id: string; name: string; is_active: boolean; updated_at: string; folder_id: string | null; executions?: number; connections?: number }
 type Folder = { id: string; name: string; count: number }
 type Settings = { default_flow_id: string | null; media_flow_id: string | null }
 
@@ -147,9 +147,9 @@ export default function Fluxos() {
                       {settings.media_flow_id === f.id && <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">mídia</span>}
                     </a>
                   </td>
-                  <td className="px-4 py-3 text-center text-gray-300">—</td>
-                  <td className="px-4 py-3 text-center text-gray-300">—</td>
-                  <td className="px-4 py-3 text-center text-gray-300">—</td>
+                  <td className="px-4 py-3 text-center text-gray-600">{f.connections || 0}</td>
+                  <td className="px-4 py-3 text-center text-gray-600">{f.executions || 0}</td>
+                  <td className="px-4 py-3 text-center text-gray-600">{f.executions ? Math.round(((f.connections || 0) / f.executions) * 100) + '%' : '—'}</td>
                   <td className="px-4 py-3 text-gray-500">{new Date(f.updated_at).toLocaleDateString('pt-BR')}</td>
                   <td className="relative px-4 py-3 text-right">
                     <button onClick={() => { setMenu(menu === f.id ? null : f.id); setMoveMenu(null) }} className="rounded-lg px-2 py-1 text-gray-400 hover:bg-gray-100">⋮</button>
