@@ -74,6 +74,8 @@ export default function Inbox() {
   const [myEmail, setMyEmail] = useState<string | null>(null)
   const [assignOpen, setAssignOpen] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null) // container das mensagens (pra saber se está no fim)
+  const justSelected = useRef(true) // ao abrir/trocar conversa, desce pro fim 1x
   const fileRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const lastInboundAt = useRef<number | null>(null) // pra tocar o som só em msg nova do paciente
@@ -123,6 +125,7 @@ export default function Inbox() {
 
   useEffect(() => {
     if (!sel) return
+    justSelected.current = true // ao abrir a conversa, desce pro fim uma vez
     loadMsgs(sel.contact_id)
     loadCard(sel.contact_id)
     const t = setInterval(() => loadMsgs(sel.contact_id), 1500)
@@ -144,7 +147,15 @@ export default function Inbox() {
     setPlusOpen(false); setEmojiOpen(false); setFlowOpen(false); setAutoOpen(false); setAssignOpen(false)
   }
 
-  useEffect(() => { endRef.current?.scrollIntoView() }, [msgs])
+  // Rolagem inteligente: só desce pro fim ao ABRIR a conversa, ou quando o
+  // atendente já está no fim. Se ele rolou pra cima (lendo/copiando antigas), o
+  // poll de 1,5s NÃO arrasta a tela pra baixo.
+  useEffect(() => {
+    const el = scrollRef.current
+    const nearBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 140
+    if (justSelected.current) { endRef.current?.scrollIntoView(); justSelected.current = false }
+    else if (nearBottom) endRef.current?.scrollIntoView()
+  }, [msgs])
 
   async function send() {
     const t = text.trim()
@@ -289,7 +300,7 @@ export default function Inbox() {
               <span className={`ml-auto rounded-full px-2.5 py-1 text-xs font-medium ${STATUS[sel.status]?.badge ?? STATUS.active.badge}`}>{STATUS[sel.status]?.label ?? STATUS.active.label}</span>
             </header>
 
-            <div className="flex flex-1 flex-col gap-1 overflow-y-auto p-4">
+            <div ref={scrollRef} className="flex flex-1 flex-col gap-1 overflow-y-auto p-4">
               {msgs.map((m) => (
                 <div key={m.id} className={`max-w-[70%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm shadow-sm ${m.from_me ? 'self-end rounded-tr-sm bg-[#dcf8c6] text-gray-800' : 'self-start rounded-tl-sm bg-white text-gray-800'}`}>
                   {m.text || <span className="italic text-gray-400">[mídia]</span>}
