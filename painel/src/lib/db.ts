@@ -93,6 +93,19 @@ export async function getMessages(contactId: string): Promise<Message[]> {
   }
 }
 
+// Metadados de uma mensagem (pra editar/encaminhar).
+export async function getMessageMeta(messageId: string): Promise<{ jid: string; wa_message_id: string | null; text: string | null; media_url: string | null; media_type: string | null } | null> {
+  const c = await cid()
+  const rows = await (await rest(`messages?id=eq.${messageId}&company_id=eq.${c}&select=jid,wa_message_id,text,media_url,media_type`)).json()
+  return rows[0] ?? null
+}
+
+// Atualiza o texto de uma mensagem (após editar no WhatsApp).
+export async function updateMessageText(messageId: string, text: string): Promise<void> {
+  const c = await cid()
+  await rest(`messages?id=eq.${messageId}&company_id=eq.${c}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ text }) })
+}
+
 // Apaga a linha da mensagem no nosso banco (após apagar no WhatsApp).
 export async function deleteMessageRow(messageId: string): Promise<{ jid: string; wa_message_id: string | null } | null> {
   const c = await cid()

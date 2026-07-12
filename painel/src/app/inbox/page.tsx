@@ -75,6 +75,10 @@ export default function Inbox() {
   const [assignOpen, setAssignOpen] = useState(false)
   const [editName, setEditName] = useState(false)
   const [nameVal, setNameVal] = useState('')
+  const [editMsgId, setEditMsgId] = useState<string | null>(null)
+  const [editMsgVal, setEditMsgVal] = useState('')
+  const [fwdMsg, setFwdMsg] = useState<Msg | null>(null)
+  const [fwdSearch, setFwdSearch] = useState('')
   const [note, setNote] = useState('')
   const [noteSaved, setNoteSaved] = useState(false)
   const [fichaFlow, setFichaFlow] = useState(false)
@@ -259,6 +263,25 @@ export default function Inbox() {
     await fetch('/api/delete-message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id }) }).catch(() => {})
   }
 
+  function iniciarEdicao(m: Msg) { setEditMsgId(m.id); setEditMsgVal(m.text || '') }
+  async function salvarEdicao() {
+    const id = editMsgId, novo = editMsgVal.trim()
+    setEditMsgId(null)
+    if (!id || !novo) return
+    setMsgs((list) => list.map((x) => (x.id === id ? { ...x, text: novo } : x)))
+    await fetch('/api/edit-message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: id, text: novo }) }).catch(() => {})
+  }
+
+  async function encaminhar(targetContactId: string) {
+    if (!fwdMsg) return
+    const m = fwdMsg
+    setFwdMsg(null); setFwdSearch('')
+    const r = await fetch('/api/forward', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id, targetContactId }) })
+    const d = await r.json().catch(() => ({}))
+    if (d.warn) alert('⚠️ ' + d.warn)
+    else alert('✅ Encaminhado!')
+  }
+
   function inserirEmoji(e: string) {
     setText((t) => t + e)
     setEmojiOpen(false)
@@ -340,10 +363,23 @@ export default function Inbox() {
                 const caption = m.text && !/^\[.*\]$/.test(m.text.trim()) ? m.text : null // ignora rótulos "[imagem]"
                 return (
                   <div key={m.id} className={`group relative max-w-[70%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm shadow-sm ${m.from_me ? 'self-end rounded-tr-sm bg-[#dcf8c6] text-gray-800' : 'self-start rounded-tl-sm bg-white text-gray-800'}`}>
-                    {m.from_me && !String(m.id).startsWith('tmp') && (
-                      <button onClick={() => apagarMsg(m)} title="Apagar mensagem" className="absolute -left-7 top-1/2 -translate-y-1/2 rounded-full p-1 text-gray-300 opacity-0 transition group-hover:opacity-100 hover:text-red-500">🗑</button>
+                    {/* Ações (aparecem no hover) — fora do balão, do lado */}
+                    {!String(m.id).startsWith('tmp') && editMsgId !== m.id && (
+                      <div className={`absolute top-1/2 flex -translate-y-1/2 gap-1 opacity-0 transition group-hover:opacity-100 ${m.from_me ? '-left-16' : '-right-16'}`}>
+                        <button onClick={() => setFwdMsg(m)} title="Encaminhar" className="rounded-full bg-white p-1 text-gray-400 shadow hover:text-sky-500">↪</button>
+                        {m.from_me && !m.media_url && <button onClick={() => iniciarEdicao(m)} title="Editar" className="rounded-full bg-white p-1 text-gray-400 shadow hover:text-emerald-600">✏️</button>}
+                        {m.from_me && <button onClick={() => apagarMsg(m)} title="Apagar" className="rounded-full bg-white p-1 text-gray-400 shadow hover:text-red-500">🗑</button>}
+                      </div>
                     )}
-                    {hasMedia ? (
+                    {editMsgId === m.id ? (
+                      <div>
+                        <textarea value={editMsgVal} onChange={(e) => setEditMsgVal(e.target.value)} rows={2} autoFocus className="w-64 max-w-full rounded-lg border border-gray-300 p-1.5 text-sm outline-none focus:border-emerald-500" />
+                        <div className="mt-1 flex justify-end gap-2 text-xs">
+                          <button onClick={() => setEditMsgId(null)} className="text-gray-400 hover:underline">cancelar</button>
+                          <button onClick={salvarEdicao} className="font-semibold text-emerald-600 hover:underline">salvar</button>
+                        </div>
+                      </div>
+                    ) : hasMedia ? (
                       <>
                         {m.media_type === 'image' && (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -536,6 +572,29 @@ export default function Inbox() {
             <div className="mt-1 text-right text-[11px] text-gray-400">{note.length}/2000 · salva ao sair do campo</div>
           </div>
         </aside>
+      )}
+
+      {/* Modal de encaminhar */}
+      {fwdMsg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setFwdMsg(null)}>
+          <div className="flex max-h-[70vh] w-full max-w-sm flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+              <h3 className="text-sm font-bold text-gray-900">Encaminhar para…</h3>
+              <button onClick={() => setFwdMsg(null)} className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+            <div className="border-b border-gray-100 p-2">
+              <input value={fwdSearch} onChange={(e) => setFwdSearch(e.target.value)} placeholder="Buscar contato…" autoFocus className="w-full rounded-lg bg-gray-50 px-3 py-2 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-emerald-100" />
+            </div>
+            <div className="flex-1 overflow-y-auto py-1">
+              {convs.filter((c) => { const q = fwdSearch.trim().toLowerCase(); return !q || (c.name ?? '').toLowerCase().includes(q) || (c.phone ?? '').includes(q) }).slice(0, 50).map((c) => (
+                <button key={c.contact_id} onClick={() => encaminhar(c.contact_id)} className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-emerald-50">
+                  <Avatar name={c.name} phone={c.phone} src={c.avatar_url} className="h-8 w-8 text-[11px]" />
+                  <span className="min-w-0 flex-1 truncate text-sm text-gray-800">{c.name?.trim() || c.phone || 'Sem nome'}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
