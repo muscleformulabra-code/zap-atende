@@ -11,7 +11,7 @@ export async function GET() {
     const r = await fetch(`${CONNECTOR_URL}/status?company=${company}`, { cache: 'no-store', signal: AbortSignal.timeout(4000) })
     if (!r.ok) return NextResponse.json({ whatsapp: false, connector: false })
     const d = await r.json().catch(() => ({}))
-    return NextResponse.json({ whatsapp: !!d.whatsapp, connector: true })
+    return NextResponse.json({ whatsapp: !!d.whatsapp, connector: true, me: d.me ?? null })
   } catch {
     return NextResponse.json({ whatsapp: false, connector: false })
   }

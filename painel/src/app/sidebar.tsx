@@ -127,6 +127,23 @@ export default function Sidebar() {
           )
         })}
 
+        {/* Campanhas (tráfego pago) — sempre visível */}
+        <div className="mt-3">
+          <a
+            href="/campanhas"
+            className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] font-semibold transition-all ${
+              p.startsWith('/campanhas')
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-200'
+                : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+            }`}
+          >
+            <span className={p.startsWith('/campanhas') ? 'text-white' : 'text-gray-400 group-hover:text-emerald-500'}>
+              <Icon d="M3 11l18-5v12L3 14v-3zM11.6 16.8a3 3 0 0 1-5.8-1.6" />
+            </span>
+            Campanhas
+          </a>
+        </div>
+
         {/* Assistente de Leads (IA) — sempre visível */}
         <div className="mt-5">
           <div className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-300">Inteligência</div>
