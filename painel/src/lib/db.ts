@@ -55,16 +55,21 @@ export type Conversation = {
   last_from_me: boolean | null
   last_sent_at: string | null
   status: string
+  tags: string[]
+  assigned_to: string | null
 }
 
 export async function getConversations(): Promise<Conversation[]> {
   const c = await cid()
   const [convs, sessions] = await Promise.all([
     (await rest(`conversations?company_id=eq.${c}&select=*&order=last_sent_at.desc.nullslast&limit=100`)).json(),
-    (await rest(`flow_sessions?company_id=eq.${c}&select=contact_id,status`)).json(),
+    (await rest(`flow_sessions?company_id=eq.${c}&select=contact_id,status,assigned_to`)).json(),
   ])
-  const smap = new Map<string, string>((sessions as { contact_id: string; status: string }[]).map((s) => [s.contact_id, s.status]))
-  return (convs as Omit<Conversation, 'status'>[]).map((c) => ({ ...c, status: smap.get(c.contact_id) ?? 'active' }))
+  const smap = new Map((sessions as { contact_id: string; status: string; assigned_to: string | null }[]).map((s) => [s.contact_id, s]))
+  return (convs as (Omit<Conversation, 'status' | 'tags' | 'assigned_to'> & { tags?: string[] })[]).map((c) => {
+    const s = smap.get(c.contact_id)
+    return { ...c, tags: c.tags ?? [], status: s?.status ?? 'active', assigned_to: s?.assigned_to ?? null }
+  })
 }
 
 export type Message = {

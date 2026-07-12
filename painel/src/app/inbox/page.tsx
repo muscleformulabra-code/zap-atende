@@ -12,6 +12,8 @@ type Conversa = {
   last_from_me: boolean | null
   last_sent_at: string | null
   status: string
+  tags: string[]
+  assigned_to: string | null
 }
 type Msg = { id: string; from_me: boolean; text: string | null; sent_at: string | null; media_url?: string | null; media_type?: string | null; wa_message_id?: string | null }
 type Card = { id: string; name: string | null; phone: string | null; jid: string; avatar_url: string | null; created_at: string; status: string; assigned_to: string | null; note: string | null }
@@ -79,6 +81,9 @@ export default function Inbox() {
   const [editMsgVal, setEditMsgVal] = useState('')
   const [fwdMsg, setFwdMsg] = useState<Msg | null>(null)
   const [fwdSearch, setFwdSearch] = useState('')
+  const [filtAssign, setFiltAssign] = useState<'todos' | 'meus' | 'nao'>('todos')
+  const [filtTag, setFiltTag] = useState<string | null>(null)
+  const [filterOpen, setFilterOpen] = useState(false)
   const [note, setNote] = useState('')
   const [noteSaved, setNoteSaved] = useState(false)
   const [fichaFlow, setFichaFlow] = useState(false)
@@ -288,16 +293,20 @@ export default function Inbox() {
     inputRef.current?.focus()
   }
 
+  const myName = team.find((a) => (a.email || '').toLowerCase() === (myEmail || '').toLowerCase())?.name || myEmail?.split('@')[0] || 'Eu'
+  const allTags = [...new Set(convs.flatMap((c) => c.tags || []))].sort()
   const filtered = convs
     .filter((c) => (tab === 'todas' ? true : tab === 'concluidas' ? c.status === 'done' : c.status !== 'done'))
+    .filter((c) => (filtAssign === 'meus' ? c.assigned_to === myName : filtAssign === 'nao' ? !c.assigned_to : true))
+    .filter((c) => (filtTag ? (c.tags || []).includes(filtTag) : true))
     .filter((c) => {
       const q = search.trim().toLowerCase()
       if (!q) return true
       return (c.name ?? '').toLowerCase().includes(q) || (c.phone ?? '').includes(q)
     })
   const abertasCount = convs.filter((c) => c.status !== 'done').length
+  const nFiltros = (filtAssign !== 'todos' ? 1 : 0) + (filtTag ? 1 : 0)
   const curStatus = card?.status ?? sel?.status ?? 'active'
-  const myName = team.find((a) => (a.email || '').toLowerCase() === (myEmail || '').toLowerCase())?.name || myEmail?.split('@')[0] || 'Eu'
   const assignedTo = card?.assigned_to ?? null
 
   return (
@@ -305,11 +314,37 @@ export default function Inbox() {
       {/* LISTA DE CONVERSAS */}
       <aside className="flex w-80 shrink-0 flex-col border-r border-gray-200 bg-white">
         <div className="border-b border-gray-100 px-4 pb-3 pt-3">
-          <h1 className="font-bold text-gray-900">Inbox</h1>
-          <div className="mt-2 flex gap-1 text-xs">
-            {([['abertas', `Abertas (${abertasCount})`], ['concluidas', 'Concluídas'], ['todas', 'Todas']] as [Tab, string][]).map(([k, label]) => (
-              <button key={k} onClick={() => setTab(k)} className={`rounded-lg px-2.5 py-1 font-medium ${tab === k ? 'bg-emerald-100 text-emerald-700' : 'text-gray-500 hover:bg-gray-100'}`}>{label}</button>
-            ))}
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex gap-1 text-xs">
+              {([['abertas', `Abertas (${abertasCount})`], ['concluidas', 'Concluídas'], ['todas', 'Todas']] as [Tab, string][]).map(([k, label]) => (
+                <button key={k} onClick={() => setTab(k)} className={`rounded-lg px-2.5 py-1 font-medium ${tab === k ? 'bg-emerald-100 text-emerald-700' : 'text-gray-500 hover:bg-gray-100'}`}>{label}</button>
+              ))}
+            </div>
+            <div className="relative">
+              <button onClick={() => setFilterOpen((v) => !v)} title="Filtros" className={`relative rounded-lg p-1.5 ${nFiltros ? 'bg-emerald-100 text-emerald-700' : 'text-gray-400 hover:bg-gray-100'}`}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" /></svg>
+                {nFiltros > 0 && <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-[9px] font-bold text-white">{nFiltros}</span>}
+              </button>
+              {filterOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setFilterOpen(false)} />
+                  <div className="absolute right-0 z-20 mt-1 w-56 rounded-xl border border-gray-200 bg-white p-3 shadow-xl">
+                    <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">Atribuição</div>
+                    <div className="mb-3 flex gap-1">
+                      {([['todos', 'Todos'], ['meus', 'Meus'], ['nao', 'Sem dono']] as [typeof filtAssign, string][]).map(([k, l]) => (
+                        <button key={k} onClick={() => setFiltAssign(k)} className={`flex-1 rounded-lg px-2 py-1 text-xs font-medium ${filtAssign === k ? 'bg-sky-100 text-sky-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}>{l}</button>
+                      ))}
+                    </div>
+                    <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">Etiqueta</div>
+                    <select value={filtTag ?? ''} onChange={(e) => setFiltTag(e.target.value || null)} className="w-full rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm outline-none focus:border-emerald-400">
+                      <option value="">— todas —</option>
+                      {allTags.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    {nFiltros > 0 && <button onClick={() => { setFiltAssign('todos'); setFiltTag(null) }} className="mt-3 w-full text-center text-xs font-medium text-red-500 hover:underline">Limpar filtros</button>}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
           {/* busca */}
           <div className="relative mt-2.5">
@@ -367,7 +402,7 @@ export default function Inbox() {
                     {!String(m.id).startsWith('tmp') && editMsgId !== m.id && (
                       <div className={`absolute top-1/2 flex -translate-y-1/2 gap-1 opacity-0 transition group-hover:opacity-100 ${m.from_me ? '-left-16' : '-right-16'}`}>
                         <button onClick={() => setFwdMsg(m)} title="Encaminhar" className="rounded-full bg-white p-1 text-gray-400 shadow hover:text-sky-500">↪</button>
-                        {m.from_me && !m.media_url && <button onClick={() => iniciarEdicao(m)} title="Editar" className="rounded-full bg-white p-1 text-gray-400 shadow hover:text-emerald-600">✏️</button>}
+                        {m.from_me && !m.media_url && m.sent_at && Date.now() - Date.parse(m.sent_at) < 15 * 60 * 1000 && <button onClick={() => iniciarEdicao(m)} title="Editar (só até 15 min)" className="rounded-full bg-white p-1 text-gray-400 shadow hover:text-emerald-600">✏️</button>}
                         {m.from_me && <button onClick={() => apagarMsg(m)} title="Apagar" className="rounded-full bg-white p-1 text-gray-400 shadow hover:text-red-500">🗑</button>}
                       </div>
                     )}

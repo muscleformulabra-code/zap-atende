@@ -26,7 +26,7 @@ const ICONS: Record<PermKey, ReactNode> = {
 // Agrupa os itens em seções (só aparece a seção que tiver item permitido).
 const GROUPS: { title: string | null; keys: PermKey[] }[] = [
   { title: null, keys: ['painel'] },
-  { title: 'Atendimento', keys: ['inbox', 'contatos', 'fluxos', 'respostas'] },
+  { title: 'Atendimento', keys: ['inbox', 'contatos', 'fluxos'] }, // Respostas agora só em Configurações
   { title: 'Sistema', keys: ['config'] }, // Equipe agora fica dentro de Configurações
 ]
 
