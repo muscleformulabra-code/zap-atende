@@ -39,6 +39,10 @@ export default function Sidebar() {
   const [email, setEmail] = useState<string | null>(null)
   const [name, setName] = useState<string | null>(null)
   const [online, setOnline] = useState<boolean | null>(null)
+  const [companies, setCompanies] = useState<{ id: string; name: string; role: string }[]>([])
+  const [companyId, setCompanyId] = useState<string | null>(null)
+  const [switcher, setSwitcher] = useState(false)
+  const [busca, setBusca] = useState('')
 
   // Telas de autenticação (sem sidebar).
   const AUTH = p === '/login' || p === '/cadastro' || p === '/aguardando'
@@ -46,9 +50,29 @@ export default function Sidebar() {
   useEffect(() => {
     fetch('/api/me')
       .then((r) => r.json())
-      .then((d) => { setPerms(d.perms ?? ALL_TRUE); setEmail(d.email ?? null); setName(d.name ?? null) })
+      .then((d) => { setPerms(d.perms ?? ALL_TRUE); setEmail(d.email ?? null); setName(d.name ?? null); setCompanyId(d.company_id ?? null) })
+      .catch(() => {})
+    fetch('/api/companies')
+      .then((r) => r.json())
+      .then((d) => setCompanies(Array.isArray(d) ? d : []))
       .catch(() => {})
   }, [])
+
+  async function trocarEmpresa(id: string) {
+    if (id === companyId) { setSwitcher(false); return }
+    await fetch('/api/companies/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ companyId: id }) })
+    window.location.href = '/' // recarrega tudo já na empresa nova
+  }
+
+  async function novaEmpresa() {
+    const nome = prompt('Nome da nova empresa:')
+    if (!nome || !nome.trim()) return
+    const r = await fetch('/api/companies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: nome }) })
+    if (r.ok) window.location.href = '/'
+  }
+
+  const empresaAtual = companies.find((c) => c.id === companyId)
+  const empresasFiltradas = companies.filter((c) => c.name.toLowerCase().includes(busca.toLowerCase()))
 
   useEffect(() => {
     if (AUTH) return
@@ -106,8 +130,56 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* RODAPÉ: conexão + usuário + sair */}
+      {/* RODAPÉ: seletor de empresa + conexão + usuário + sair */}
       <div className="space-y-2 border-t border-gray-100 px-3 py-3">
+        {/* SELETOR DE EMPRESA (igual BotConversa) */}
+        {companyId && (
+          <div className="relative">
+            {switcher && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setSwitcher(false)} />
+                <div className="absolute bottom-full left-0 z-20 mb-2 w-full overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+                  <div className="border-b border-gray-100 p-2">
+                    <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar empresa…" className="w-full rounded-lg bg-gray-50 px-3 py-2 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-emerald-100" autoFocus />
+                  </div>
+                  <div className="max-h-64 overflow-y-auto py-1">
+                    {empresasFiltradas.map((c) => {
+                      const atual = c.id === companyId
+                      return (
+                        <button key={c.id} onClick={() => trocarEmpresa(c.id)} className={`flex w-full items-center gap-2.5 px-3 py-2 text-left transition hover:bg-gray-50 ${atual ? 'bg-emerald-50/60' : ''}`}>
+                          <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-teal-500 text-[11px] font-bold text-white">
+                            {c.name.slice(0, 2).toUpperCase()}
+                            <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500" />
+                          </span>
+                          <span className="min-w-0 flex-1 leading-tight">
+                            <span className="block truncate text-sm font-semibold text-gray-800">{c.name}</span>
+                            <span className="block truncate text-[11px] capitalize text-gray-400">{c.role === 'owner' ? 'dono' : c.role}</span>
+                          </span>
+                          {atual && <span className="text-emerald-500">✓</span>}
+                        </button>
+                      )
+                    })}
+                    {empresasFiltradas.length === 0 && <div className="px-3 py-4 text-center text-xs text-gray-400">nenhuma empresa</div>}
+                  </div>
+                  <button onClick={novaEmpresa} className="flex w-full items-center justify-center gap-2 border-t border-gray-100 bg-emerald-500 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-600">
+                    + Adicionar nova empresa
+                  </button>
+                </div>
+              </>
+            )}
+            <button onClick={() => { setSwitcher((s) => !s); setBusca('') }} className="flex w-full items-center gap-2.5 rounded-xl border border-gray-200 px-2.5 py-2 text-left transition hover:bg-gray-50">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-teal-500 text-[11px] font-bold text-white">
+                {(empresaAtual?.name || 'E1').slice(0, 2).toUpperCase()}
+              </span>
+              <span className="min-w-0 flex-1 leading-tight">
+                <span className="block truncate text-xs font-bold text-gray-800">{empresaAtual?.name || 'Minha empresa'}</span>
+                <span className="block text-[10px] font-medium uppercase tracking-wide text-gray-400">trocar empresa</span>
+              </span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4 shrink-0 text-gray-400"><path d="M8 9l4-4 4 4M8 15l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+          </div>
+        )}
+
         <div className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2">
           <span className="relative flex h-2.5 w-2.5">
             {online && <span className="za-pulse absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />}

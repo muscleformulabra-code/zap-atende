@@ -76,3 +76,40 @@ export async function getCompany(id: string): Promise<Company | null> {
   if (!r.ok) return null
   return (await r.json())[0] ?? null
 }
+
+export type MyCompany = { id: string; name: string; role: Role }
+
+// Todas as empresas de que o usuário faz parte (pra o seletor "Minhas empresas").
+export async function myCompanies(userId: string): Promise<MyCompany[]> {
+  if (!userId) return []
+  const r = await fetch(`${REST}/company_members?user_id=eq.${userId}&select=role,companies(id,name)&order=created_at.asc`, { headers: H, cache: 'no-store' })
+  if (!r.ok) return []
+  type Row = { role: Role; companies: { id: string; name: string } | null }
+  const rows: Row[] = await r.json()
+  return rows.filter((x) => x.companies).map((x) => ({ id: x.companies!.id, name: x.companies!.name, role: x.role }))
+}
+
+// Vínculo do usuário numa empresa específica (pra validar troca de empresa).
+export async function membershipOf(userId: string, companyId: string): Promise<Membership | null> {
+  if (!userId || !companyId) return null
+  const r = await fetch(`${REST}/company_members?user_id=eq.${userId}&company_id=eq.${companyId}&select=*&limit=1`, { headers: H, cache: 'no-store' })
+  if (!r.ok) return null
+  return (await r.json())[0] ?? null
+}
+
+// Cria uma empresa nova e torna o usuário DONO dela. Retorna a empresa criada.
+export async function createCompany(name: string, userId: string, email: string): Promise<Company> {
+  const r = await fetch(`${REST}/companies`, {
+    method: 'POST',
+    headers: { ...H, Prefer: 'return=representation' },
+    body: JSON.stringify({ name: (name || '').trim() || 'Nova empresa' }),
+  })
+  if (!r.ok) throw new Error('Erro ao criar empresa')
+  const company: Company = (await r.json())[0]
+  await fetch(`${REST}/company_members`, {
+    method: 'POST',
+    headers: { ...H, Prefer: 'return=minimal' },
+    body: JSON.stringify({ company_id: company.id, user_id: userId, email, role: 'owner' }),
+  })
+  return company
+}
