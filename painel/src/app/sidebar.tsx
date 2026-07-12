@@ -36,8 +36,6 @@ const hrefFor = (k: PermKey) => PERM_LIST.find((i) => i.key === k)?.href ?? '/'
 export default function Sidebar() {
   const p = usePathname()
   const [perms, setPerms] = useState<Perms>(ALL_TRUE)
-  const [email, setEmail] = useState<string | null>(null)
-  const [name, setName] = useState<string | null>(null)
   const [online, setOnline] = useState<boolean | null>(null)
   const [companies, setCompanies] = useState<{ id: string; name: string; role: string }[]>([])
   const [companyId, setCompanyId] = useState<string | null>(null)
@@ -50,7 +48,7 @@ export default function Sidebar() {
   useEffect(() => {
     fetch('/api/me')
       .then((r) => r.json())
-      .then((d) => { setPerms(d.perms ?? ALL_TRUE); setEmail(d.email ?? null); setName(d.name ?? null); setCompanyId(d.company_id ?? null) })
+      .then((d) => { setPerms(d.perms ?? ALL_TRUE); setCompanyId(d.company_id ?? null) })
       .catch(() => {})
     fetch('/api/companies')
       .then((r) => r.json())
@@ -190,24 +188,6 @@ export default function Sidebar() {
           </span>
         </div>
 
-        {email && (
-          <a href="/perfil" className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-gray-50" title="Editar perfil">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-[11px] font-semibold text-white">
-              {(name || email).slice(0, 2).toUpperCase()}
-            </span>
-            <span className="min-w-0 flex-1 leading-tight">
-              <span className="block truncate text-xs font-semibold text-gray-700">{name || 'Meu perfil'}</span>
-              <span className="block truncate text-[11px] text-gray-400">{email}</span>
-            </span>
-          </a>
-        )}
-
-        <form action="/api/logout" method="post">
-          <button className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="h-[18px] w-[18px]"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg>
-            Sair
-          </button>
-        </form>
       </div>
     </aside>
   )

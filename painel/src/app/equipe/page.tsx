@@ -63,7 +63,7 @@ export default function Equipe() {
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
-      <header className="mb-6 flex items-center justify-between">
+      <header className="mb-6 flex items-center justify-between pr-12">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Equipe</h1>
           <p className="text-sm text-gray-500">Convide atendentes por e-mail e defina o que cada um acessa</p>

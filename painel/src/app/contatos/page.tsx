@@ -103,7 +103,7 @@ export default function Contatos() {
   return (
     <main className="mx-auto max-w-6xl px-6 py-8" onClick={() => setMenuFor(null)}>
       {/* HEADER */}
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-3 pr-12">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Contatos</h1>
           <p className="text-sm text-gray-500">{contacts.length} contatos{(search || activeTag) && ' (filtrados)'}</p>

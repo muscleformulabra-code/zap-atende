@@ -101,7 +101,7 @@ export default function Dashboard() {
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <header className="mb-6 flex flex-wrap items-end justify-between gap-4 pr-12">
         <div>
           <h1 className="text-[26px] font-extrabold tracking-tight text-gray-900">Painel de controle</h1>
           <p className="text-sm text-gray-500">Análise completa do atendimento</p>
