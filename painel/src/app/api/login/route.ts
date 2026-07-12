@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { signIn } from '@/lib/auth'
+import { signIn, hasVerifiedTotp } from '@/lib/auth'
 import { setSessionCookies } from '@/lib/session'
 import { acceptPendingInvites } from '@/lib/team'
 
@@ -9,7 +9,18 @@ export async function POST(req: Request) {
   try {
     const auth = await signIn(email, password)
     const mail = auth.user?.email || email
-    // Aceita convites pendentes (vira membro da empresa) e descobre a empresa.
+
+    // 2FA: se o usuário tem TOTP ativo, NÃO completa o login ainda — guarda o
+    // token num cookie curto e pede o código (etapa 2). Fail-open: se a checagem
+    // falhar, segue o login normal (nunca trava ninguém).
+    const { has, factorId } = await hasVerifiedTotp(auth.access_token)
+    if (has && factorId) {
+      const res = NextResponse.json({ ok: true, mfaRequired: true, factorId })
+      res.cookies.set('za_mfa', auth.access_token, { path: '/', maxAge: 300, sameSite: 'lax', httpOnly: true })
+      return res
+    }
+
+    // Sem 2FA: completa normalmente.
     const membership = await acceptPendingInvites(auth.user.id, mail).catch(() => null)
     const res = NextResponse.json({ ok: true, hasCompany: !!membership })
     setSessionCookies(res, {

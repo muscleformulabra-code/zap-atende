@@ -140,6 +140,70 @@ export async function getUserName(email: string): Promise<string | null> {
   }
 }
 
+// ── 2FA (MFA TOTP) via Supabase Auth (gotrue) ──────────────────
+// Usa o token de acesso do próprio usuário (não a service key).
+const userHeaders = (token: string) => ({ apikey: ANON!, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' })
+
+export type Factor = { id: string; status: string; factor_type: string; friendly_name?: string }
+
+// Fatores 2FA do usuário (lidos do /user). Verified = 2FA ativo.
+export async function getUserFactors(token: string): Promise<Factor[]> {
+  try {
+    const r = await fetch(`${URL}/auth/v1/user`, { headers: userHeaders(token), cache: 'no-store' })
+    if (!r.ok) return []
+    const d = await r.json()
+    return (d.factors || []) as Factor[]
+  } catch {
+    return []
+  }
+}
+
+// Tem 2FA (TOTP) ativo (verificado)?
+export async function hasVerifiedTotp(token: string): Promise<{ has: boolean; factorId: string | null }> {
+  const f = (await getUserFactors(token)).find((x) => x.factor_type === 'totp' && x.status === 'verified')
+  return { has: !!f, factorId: f?.id ?? null }
+}
+
+// Inicia a inscrição: cria um fator TOTP e devolve o QR + segredo pra escanear.
+export async function mfaEnroll(token: string): Promise<{ id: string; qr_code: string; secret: string; uri: string }> {
+  const r = await fetch(`${URL}/auth/v1/factors`, {
+    method: 'POST',
+    headers: userHeaders(token),
+    body: JSON.stringify({ factor_type: 'totp', friendly_name: 'Authenticator', issuer: 'Ricco Chat' }),
+    cache: 'no-store',
+  })
+  const d = await r.json()
+  if (!r.ok) throw new Error(d.msg || d.error_description || d.error || 'Erro ao ativar 2FA')
+  return { id: d.id, qr_code: d.totp?.qr_code || '', secret: d.totp?.secret || '', uri: d.totp?.uri || '' }
+}
+
+// Cria um desafio pra um fator (necessário antes de verificar).
+async function mfaChallenge(token: string, factorId: string): Promise<string> {
+  const r = await fetch(`${URL}/auth/v1/factors/${factorId}/challenge`, { method: 'POST', headers: userHeaders(token), cache: 'no-store' })
+  const d = await r.json()
+  if (!r.ok) throw new Error(d.msg || 'Erro ao desafiar 2FA')
+  return d.id
+}
+
+// Verifica o código de 6 dígitos. Retorna a nova sessão (aal2) quando dá certo.
+export async function mfaVerify(token: string, factorId: string, code: string): Promise<AuthResult> {
+  const challengeId = await mfaChallenge(token, factorId)
+  const r = await fetch(`${URL}/auth/v1/factors/${factorId}/verify`, {
+    method: 'POST',
+    headers: userHeaders(token),
+    body: JSON.stringify({ challenge_id: challengeId, code: (code || '').trim() }),
+    cache: 'no-store',
+  })
+  const d = await r.json()
+  if (!r.ok) throw new Error(d.msg || d.error_description || 'Código inválido')
+  return d
+}
+
+// Desativa o 2FA (remove o fator).
+export async function mfaUnenroll(token: string, factorId: string): Promise<void> {
+  await fetch(`${URL}/auth/v1/factors/${factorId}`, { method: 'DELETE', headers: userHeaders(token), cache: 'no-store' })
+}
+
 // Remove atendente.
 export async function deleteUser(id: string) {
   await fetch(`${URL}/auth/v1/admin/users/${id}`, {
