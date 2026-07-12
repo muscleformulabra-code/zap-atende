@@ -67,7 +67,7 @@ async function callBot(state, input, startFlowId = null, companyId = null) {
   const res = await fetch(`${PAINEL_URL}/api/simulate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ state, input, startFlowId, company: companyId }),
+    body: JSON.stringify({ state, input, startFlowId, company: companyId, track: true }),
   })
   if (!res.ok) throw new Error(`bot ${res.status}`)
   return res.json() // { replies: [{text}], state }
