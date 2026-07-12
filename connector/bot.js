@@ -88,9 +88,42 @@ async function callBot(state, input, startFlowId = null, companyId = null) {
 //  - Fluxo padrão de mídia (mediaFlowId) = quando o paciente manda anexo.
 //  - Fluxo de resposta padrão (defaultFlowId) = quando um contato já concluído
 //    volta a escrever (o "2º contato").
+// Normaliza a frase (minúsculo, sem pontuação final, espaços colapsados) pra
+// casar a mensagem do paciente com a frase da campanha.
+function normPhrase(s) { return (s || '').toLowerCase().trim().replace(/[.!?…]+$/g, '').replace(/\s+/g, ' ') }
+
+// A mensagem é EXATAMENTE a frase de alguma campanha? (tráfego pago → fluxo)
+async function matchCampaign(companyId, text) {
+  const norm = normPhrase(text)
+  if (!norm) return null
+  try {
+    const res = await fetch(`${REST}/campaigns?company_id=eq.${companyId || SEED_COMPANY_ID}&flow_id=not.is.null&select=id,flow_id,phrase`, { headers: H })
+    const rows = await res.json()
+    return rows.find((c) => normPhrase(c.phrase) === norm) || null
+  } catch {
+    return null
+  }
+}
+
+async function bumpCampaign(id) {
+  try {
+    await fetch(`${REST}/rpc/increment_campaign_metric`, { method: 'POST', headers: H, body: JSON.stringify({ p_id: id, p_part: 1, p_exec: 1 }) })
+  } catch {}
+}
+
 async function handleIncoming(contactId, text, opts = {}) {
   const { reengageHours = 12, isMedia = false, defaultFlowId = null, mediaFlowId = null, companyId = null } =
     typeof opts === 'number' ? { reengageHours: opts } : opts
+
+  // CAMPANHA (tráfego pago): se a mensagem é a frase exata de uma campanha,
+  // dispara o FLUXO dela direto (pula o menu) e conta o lead.
+  const camp = await matchCampaign(companyId, text)
+  if (camp) {
+    const result = await callBot(null, text, camp.flow_id, companyId)
+    await saveSession(contactId, result.state, companyId)
+    bumpCampaign(camp.id)
+    return result
+  }
 
   const session = await getSession(contactId)
   const age = session && session.updatedAt ? Date.now() - Date.parse(session.updatedAt) : Infinity

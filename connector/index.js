@@ -426,8 +426,9 @@ http
         return res.end(JSON.stringify({ companies: all }))
       }
       const s = getSession(companyFromReq(req))
+      const me = (s.sock?.user?.id || '').split(':')[0].split('@')[0] || null // número conectado
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      return res.end(JSON.stringify({ connected: !!s.sock, whatsapp: s.waConnected }))
+      return res.end(JSON.stringify({ connected: !!s.sock, whatsapp: s.waConnected, me }))
     }
 
     if (req.method === 'GET' && req.url.startsWith('/debug')) {
