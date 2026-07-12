@@ -46,24 +46,46 @@ async function upsertContact({ jid, phone, name, companyId }) {
 }
 
 // Guarda a mensagem. 409 = duplicada (mesmo id do WhatsApp) -> ignora.
-async function insertMessage({ contactId, jid, fromMe, text, waMessageId, sentAt, sentBy, companyId }) {
-  const res = await fetch(`${REST}/messages`, {
+async function insertMessage({ contactId, jid, fromMe, text, waMessageId, sentAt, sentBy, companyId, mediaUrl, mediaType }) {
+  const row = {
+    contact_id: contactId,
+    jid,
+    from_me: fromMe,
+    text,
+    wa_message_id: waMessageId,
+    sent_at: sentAt,
+    sent_by: sentBy ?? null,
+    company_id: companyId || SEED_COMPANY_ID,
+  }
+  if (mediaUrl) row.media_url = mediaUrl
+  if (mediaType) row.media_type = mediaType
+  let res = await fetch(`${REST}/messages`, {
     method: 'POST',
     headers: { ...baseHeaders, Prefer: 'return=minimal' },
-    body: JSON.stringify({
-      contact_id: contactId,
-      jid,
-      from_me: fromMe,
-      text,
-      wa_message_id: waMessageId,
-      sent_at: sentAt,
-      sent_by: sentBy ?? null,
-      company_id: companyId || SEED_COMPANY_ID,
-    }),
+    body: JSON.stringify(row),
   })
+  // Se as colunas de mídia ainda não existem no banco, tenta sem elas.
+  if (!res.ok && res.status !== 409 && (mediaUrl || mediaType)) {
+    delete row.media_url; delete row.media_type
+    res = await fetch(`${REST}/messages`, { method: 'POST', headers: { ...baseHeaders, Prefer: 'return=minimal' }, body: JSON.stringify(row) })
+  }
   if (!res.ok && res.status !== 409) {
     throw new Error(`insertMessage ${res.status}: ${await res.text()}`)
   }
+}
+
+// Sobe um buffer de mídia pro Storage (bucket flyers, público) e devolve a URL.
+async function uploadMedia(buffer, filename, mimetype) {
+  const safe = (filename || 'arquivo').replace(/[^a-zA-Z0-9._-]/g, '_')
+  const rand = Math.random().toString(36).slice(2, 8)
+  const path = `wa/${Date.now()}_${rand}_${safe}`
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/flyers/${path}`, {
+    method: 'POST',
+    headers: { apikey: KEY, Authorization: `Bearer ${KEY}`, 'Content-Type': mimetype || 'application/octet-stream', 'x-upsert': 'true' },
+    body: buffer,
+  })
+  if (!res.ok) throw new Error(`uploadMedia ${res.status}: ${await res.text()}`)
+  return `${SUPABASE_URL}/storage/v1/object/public/flyers/${path}`
 }
 
 // Atualiza a foto de perfil do contato (guarda a URL + quando foi buscada).
@@ -120,4 +142,4 @@ async function applyTagOps(contactId, tagOps) {
 // Impressão digital da chave (sem expor o segredo) pra diagnóstico.
 const keyInfo = { len: KEY.length, head: KEY.slice(0, 6), tail: KEY.slice(-4) }
 
-module.exports = { upsertContact, insertMessage, updateAvatar, setSessionDone, applyTagOps, keyInfo }
+module.exports = { upsertContact, insertMessage, updateAvatar, setSessionDone, applyTagOps, uploadMedia, keyInfo }

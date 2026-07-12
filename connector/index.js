@@ -12,6 +12,7 @@ const {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  downloadMediaMessage,
 } = require('@whiskeysockets/baileys')
 const qrcode = require('qrcode-terminal')
 const QRImage = require('qrcode')
@@ -20,7 +21,7 @@ const http = require('http')
 const fs = require('fs')
 const pino = require('pino')
 
-const { upsertContact, insertMessage, updateAvatar, setSessionDone, applyTagOps, keyInfo } = require('./supabase')
+const { upsertContact, insertMessage, updateAvatar, setSessionDone, applyTagOps, uploadMedia, keyInfo } = require('./supabase')
 const BAILEYS_VERSION = (() => { try { return require('@whiskeysockets/baileys/package.json').version } catch { return '?' } })()
 const { handleIncoming, getSettings } = require('./bot')
 
@@ -98,13 +99,45 @@ async function botSend(sock, target, reply, settings, contactId, companyId) {
   }
   try {
     const label = r.text || r.caption || (r.image ? '[imagem]' : r.video ? '[vídeo]' : r.file ? `[${r.fileName || 'documento'}]` : r.audio ? '[áudio]' : '')
-    await insertMessage({ contactId, jid: target, fromMe: true, text: label, waMessageId: sent?.key?.id, sentAt: new Date().toISOString(), companyId })
+    // Mídia do fluxo já tem URL pública (Storage) — guarda pra aparecer no inbox.
+    const mediaUrl = r.image || r.video || r.file || r.audio || null
+    const mediaType = r.image ? 'image' : r.video ? 'video' : r.audio ? 'audio' : r.file ? 'document' : null
+    await insertMessage({ contactId, jid: target, fromMe: true, text: label, waMessageId: sent?.key?.id, sentAt: new Date().toISOString(), companyId, mediaUrl, mediaType })
   } catch {}
 }
 
 function isMediaMsg(msg) {
   const m = msg.message || {}
   return !!(m.imageMessage || m.videoMessage || m.audioMessage || m.documentMessage || m.stickerMessage)
+}
+
+// Tipo/extensão/mimetype da mídia (pra baixar e salvar com o nome certo).
+function mediaInfo(msg) {
+  const m = msg.message || {}
+  if (m.imageMessage) return { type: 'image', ext: 'jpg', mimetype: m.imageMessage.mimetype || 'image/jpeg' }
+  if (m.stickerMessage) return { type: 'image', ext: 'webp', mimetype: 'image/webp' }
+  if (m.videoMessage) return { type: 'video', ext: 'mp4', mimetype: m.videoMessage.mimetype || 'video/mp4' }
+  if (m.audioMessage) return { type: 'audio', ext: 'ogg', mimetype: m.audioMessage.mimetype || 'audio/ogg' }
+  if (m.documentMessage) {
+    const name = m.documentMessage.fileName || 'documento'
+    return { type: 'document', ext: (name.split('.').pop() || 'bin'), mimetype: m.documentMessage.mimetype || 'application/octet-stream', fileName: name }
+  }
+  return null
+}
+
+// Baixa a mídia da mensagem e sobe no Storage; devolve { url, type } ou null.
+async function fetchMedia(sock, msg) {
+  const info = mediaInfo(msg)
+  if (!info) return null
+  try {
+    const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage })
+    const name = info.fileName || `${msg.key.id}.${info.ext}`
+    const url = await uploadMedia(buffer, name, info.mimetype)
+    return { url, type: info.type }
+  } catch (e) {
+    console.error('fetchMedia:', e?.message || e)
+    return null
+  }
 }
 
 function extractText(msg) {
@@ -262,7 +295,11 @@ async function startSession(companyId) {
 
       try {
         const contact = await upsertContact({ jid, phone, name, companyId })
-        await insertMessage({ contactId: contact.id, jid, fromMe, text, waMessageId: msg.key.id, sentAt, companyId })
+        // Mídia (imagem/áudio/vídeo/documento): baixa e sobe pro Storage pra
+        // aparecer de verdade no inbox (antes só ficava o rótulo "[imagem]").
+        let media = null
+        if (isMediaMsg(msg)) media = await fetchMedia(sock, msg)
+        await insertMessage({ contactId: contact.id, jid, fromMe, text, waMessageId: msg.key.id, sentAt, companyId, mediaUrl: media?.url, mediaType: media?.type })
         s.diag.saved++
 
         if (!fromMe && process.env.FETCH_AVATARS === 'true') {
@@ -471,8 +508,12 @@ setInterval(async()=>{
           else content = { document: buffer, mimetype, fileName: fileName || 'arquivo' }
           const sent = await s.sock.sendMessage(to, content)
           const label = caption || (kind === 'image' ? '[imagem]' : kind === 'video' ? '[vídeo]' : `[${fileName || 'documento'}]`)
+          // Sobe a mídia enviada pro Storage pra ela aparecer no inbox também.
+          let mediaUrl = null
+          const mediaType = kind === 'image' ? 'image' : kind === 'video' ? 'video' : 'document'
+          try { mediaUrl = await uploadMedia(buffer, fileName || `envio.${(mimetype.split('/')[1] || 'bin')}`, mimetype) } catch {}
           try {
-            await insertMessage({ contactId, jid: to, fromMe: true, text: label, waMessageId: sent?.key?.id, sentAt: new Date().toISOString(), sentBy, companyId: company || SEED_COMPANY_ID })
+            await insertMessage({ contactId, jid: to, fromMe: true, text: label, waMessageId: sent?.key?.id, sentAt: new Date().toISOString(), sentBy, companyId: company || SEED_COMPANY_ID, mediaUrl, mediaType })
           } catch {}
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true }))
