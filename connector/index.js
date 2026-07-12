@@ -107,13 +107,13 @@ async function botSend(sock, target, reply, settings, contactId, companyId) {
 }
 
 function isMediaMsg(msg) {
-  const m = msg.message || {}
+  const m = unwrap(msg.message) || {}
   return !!(m.imageMessage || m.videoMessage || m.audioMessage || m.documentMessage || m.stickerMessage)
 }
 
 // Tipo/extensão/mimetype da mídia (pra baixar e salvar com o nome certo).
 function mediaInfo(msg) {
-  const m = msg.message || {}
+  const m = unwrap(msg.message) || {}
   if (m.imageMessage) return { type: 'image', ext: 'jpg', mimetype: m.imageMessage.mimetype || 'image/jpeg' }
   if (m.stickerMessage) return { type: 'image', ext: 'webp', mimetype: 'image/webp' }
   if (m.videoMessage) return { type: 'video', ext: 'mp4', mimetype: m.videoMessage.mimetype || 'video/mp4' }
@@ -130,7 +130,9 @@ async function fetchMedia(sock, msg) {
   const info = mediaInfo(msg)
   if (!info) return null
   try {
-    const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage })
+    // Baixa da mensagem desembrulhada (efêmera/ver-uma-vez também).
+    const inner = { key: msg.key, message: unwrap(msg.message) }
+    const buffer = await downloadMediaMessage(inner, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage })
     const name = info.fileName || `${msg.key.id}.${info.ext}`
     const url = await uploadMedia(buffer, name, info.mimetype)
     return { url, type: info.type }
@@ -140,21 +142,45 @@ async function fetchMedia(sock, msg) {
   }
 }
 
-function extractText(msg) {
-  const m = msg.message
+// Desembrulha mensagens "efêmeras"/"ver uma vez"/documento-com-legenda pra
+// conseguir ler o conteúdo real (senão viria vazio / "não suportado").
+function unwrap(m) {
   if (!m) return null
+  return m.ephemeralMessage?.message || m.viewOnceMessage?.message || m.viewOnceMessageV2?.message || m.viewOnceMessageV2Extension?.message || m.documentWithCaptionMessage?.message || m
+}
+
+function extractText(msg) {
+  const m = unwrap(msg.message)
+  if (!m) return null
+  // Reação (emoji) do paciente a uma mensagem.
+  if (m.reactionMessage) return m.reactionMessage.text ? `reagiu com ${m.reactionMessage.text}` : 'removeu a reação'
+  // Resposta a MENU/botão (o que a pessoa escolheu — check-up, opção etc.).
+  const escolha =
+    m.buttonsResponseMessage?.selectedDisplayText ||
+    m.templateButtonReplyMessage?.selectedDisplayText ||
+    m.listResponseMessage?.title ||
+    m.listResponseMessage?.singleSelectReply?.selectedRowId ||
+    m.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson
+  if (escolha) return String(escolha)
   return (
     m.conversation ||
     m.extendedTextMessage?.text ||
     m.imageMessage?.caption ||
     m.videoMessage?.caption ||
+    m.documentMessage?.caption ||
     (m.imageMessage && '[imagem]') ||
-    (m.audioMessage && '[áudio]') ||
-    (m.documentMessage && '[documento]') ||
+    (m.audioMessage && (m.audioMessage.ptt ? '[áudio de voz]' : '[áudio]')) ||
+    (m.videoMessage && '[vídeo]') ||
+    (m.documentMessage && `[${m.documentMessage.fileName || 'documento'}]`) ||
     (m.stickerMessage && '[figurinha]') ||
     (m.locationMessage && '[localização]') ||
-    (m.contactMessage && '[contato]') ||
-    null
+    (m.liveLocationMessage && '[localização ao vivo]') ||
+    (m.contactMessage && `[contato: ${m.contactMessage.displayName || ''}]`) ||
+    (m.contactsArrayMessage && '[contatos]') ||
+    (m.pollCreationMessage && `[enquete] ${m.pollCreationMessage.name || ''}`) ||
+    (m.pollCreationMessageV3 && `[enquete] ${m.pollCreationMessageV3.name || ''}`) ||
+    (m.pollUpdateMessage && '[voto em enquete]') ||
+    '[mensagem não reconhecida]'
   )
 }
 
@@ -515,6 +541,28 @@ setInterval(async()=>{
           try {
             await insertMessage({ contactId, jid: to, fromMe: true, text: label, waMessageId: sent?.key?.id, sentAt: new Date().toISOString(), sentBy, companyId: company || SEED_COMPANY_ID, mediaUrl, mediaType })
           } catch {}
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true }))
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: e.message }))
+        }
+      })
+      return
+    }
+
+    // Apagar mensagem no WhatsApp (delete for everyone) — só as NOSSAS.
+    // body: { to, waMessageId, company }
+    if (req.method === 'POST' && req.url === '/delete-message') {
+      let body = ''
+      req.on('data', (c) => (body += c))
+      req.on('end', async () => {
+        try {
+          const { to, waMessageId, company } = JSON.parse(body || '{}')
+          if (!to || !waMessageId) throw new Error('to e waMessageId obrigatórios')
+          const s = getSession(company || SEED_COMPANY_ID)
+          if (!s.sock || !s.waConnected) throw new Error('WhatsApp desconectado')
+          await s.sock.sendMessage(to, { delete: { remoteJid: to, fromMe: true, id: waMessageId } })
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true }))
         } catch (e) {
