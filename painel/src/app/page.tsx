@@ -45,8 +45,8 @@ function BarChart({ series, metric }: { series: DayPoint[]; metric: keyof DayPoi
   if (!series.length) return <div className="py-8 text-center text-sm text-gray-400">Sem dados no período.</div>
   const vals = series.map((d) => Number(d[metric]) || 0)
   const max = Math.max(1, ...vals)
-  const H = 200, padL = 32, padTop = 18, padBottom = 24
-  const slot = 46
+  const H = 240, padL = 34, padTop = 24, padBottom = 30
+  const slot = 52
   const W = Math.max(series.length * slot + padL + 8, 260)
   const plotH = H - padTop - padBottom
   const showEvery = series.length > 20 ? Math.ceil(series.length / 15) : 1
@@ -240,18 +240,20 @@ export default function Dashboard() {
           </section>
 
           {/* ESTATÍSTICAS POR PERÍODO (gráfico) */}
-          <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <section className="mb-6 overflow-hidden rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
               <h2 className="font-bold text-gray-800">📈 Estatísticas por período</h2>
               <select value={metric} onChange={(e) => setMetric(e.target.value as keyof DayPoint)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 outline-none focus:border-emerald-400">
                 {METRICS.map((m) => <option key={m.k} value={m.k}>{m.label}</option>)}
               </select>
             </div>
-            <BarChart series={data.series} metric={metric} />
+            <div className="pt-1">
+              <BarChart series={data.series} metric={metric} />
+            </div>
           </section>
 
           {/* ESTATÍSTICAS DE CHAT POR MEMBROS */}
-          <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <section className="mb-6 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
             <div className="border-b border-gray-100 px-5 py-4">
               <h2 className="font-bold text-gray-800">👥 Estatísticas de chat por membros</h2>
               <p className="text-xs text-gray-400">no período selecionado</p>
