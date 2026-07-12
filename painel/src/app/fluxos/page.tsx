@@ -15,6 +15,9 @@ export default function Fluxos() {
   const [curFolder, setCurFolder] = useState<string | null>(null)
   const [menu, setMenu] = useState<string | null>(null)
   const [moveMenu, setMoveMenu] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkMenu, setBulkMenu] = useState(false)
+  const [folderMenu, setFolderMenu] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -46,8 +49,26 @@ export default function Fluxos() {
     load()
   }
   async function excluirPasta(f: Folder) {
+    setFolderMenu(null)
     if (!confirm(`Excluir a pasta "${f.name}"? Os fluxos dentro dela voltam pra raiz.`)) return
     await fetch(`/api/flow-folders?id=${f.id}`, { method: 'DELETE' }); load()
+  }
+  async function renomearPasta(f: Folder) {
+    setFolderMenu(null)
+    const name = prompt('Novo nome da pasta:', f.name)?.trim(); if (!name) return
+    await fetch('/api/flow-folders', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: f.id, name }) }); load()
+  }
+  // ── Ações em massa (seleção de fluxos) ──
+  function toggleSel(id: string) { setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n }) }
+  function limparSel() { setSelected(new Set()); setBulkMenu(false) }
+  async function bulkMover(folderId: string | null) {
+    for (const id of selected) await fetch(`/api/flows/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'move', folderId }) })
+    limparSel(); load()
+  }
+  async function bulkExcluir() {
+    if (!confirm(`Excluir ${selected.size} fluxo(s)? Não pode ser desfeito.`)) return
+    for (const id of selected) await fetch(`/api/flows/${id}`, { method: 'DELETE' })
+    limparSel(); load()
   }
   async function flowAction(id: string, body: object) {
     await fetch(`/api/flows/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -71,6 +92,8 @@ export default function Fluxos() {
   const q = search.trim().toLowerCase()
   const visible = flows.filter((f) => (f.folder_id ?? null) === curFolder && f.name.toLowerCase().includes(q))
   const folderName = folders.find((f) => f.id === curFolder)?.name
+  const allSelected = visible.length > 0 && visible.every((f) => selected.has(f.id))
+  function toggleAll() { setSelected((s) => { const n = new Set(s); if (allSelected) visible.forEach((f) => n.delete(f.id)); else visible.forEach((f) => n.add(f.id)); return n }) }
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-8">
@@ -108,15 +131,47 @@ export default function Fluxos() {
       {!curFolder && !q && folders.length > 0 && (
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {folders.map((f) => (
-            <div key={f.id} className="group flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
+            <div key={f.id} className="group relative flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm">
               <button onClick={() => setCurFolder(f.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                 <span className="text-xl">📁</span>
                 <span className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-800">{f.name}</span>
                 <span className="text-xs text-gray-400">{f.count}</span>
               </button>
-              <button onClick={() => excluirPasta(f)} className="text-gray-300 opacity-0 transition group-hover:opacity-100 hover:text-red-500" title="Excluir pasta">✕</button>
+              <button onClick={() => setFolderMenu(folderMenu === f.id ? null : f.id)} className="rounded px-1 text-gray-400 hover:bg-gray-100" title="Opções da pasta">⋮</button>
+              {folderMenu === f.id && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setFolderMenu(null)} />
+                  <div className="absolute right-2 top-10 z-20 w-40 rounded-xl border border-gray-200 bg-white py-1 shadow-xl">
+                    <button onClick={() => renomearPasta(f)} className="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50">🔤 Renomear</button>
+                    <button onClick={() => excluirPasta(f)} className="block w-full px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50">🗑 Excluir</button>
+                  </div>
+                </>
+              )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* BARRA DE AÇÕES EM MASSA */}
+      {selected.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5">
+          <span className="text-sm font-medium text-sky-800">Fluxos selecionados: {selected.size}</span>
+          <button onClick={limparSel} className="rounded-lg bg-white px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100">Cancelar</button>
+          <div className="relative">
+            <button onClick={() => setBulkMenu((v) => !v)} className="flex items-center gap-1 rounded-lg bg-sky-500 px-4 py-1.5 text-sm font-semibold text-white hover:bg-sky-600">Opções selecionadas ▾</button>
+            {bulkMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setBulkMenu(false)} />
+                <div className="absolute z-20 mt-1 w-56 rounded-xl border border-gray-200 bg-white py-1 shadow-xl">
+                  <div className="px-3 py-1.5 text-xs font-semibold text-gray-400">Mover para</div>
+                  <button onClick={() => bulkMover(null)} className="block w-full px-3 py-1.5 text-left text-sm text-gray-600 hover:bg-gray-50">↑ Raiz (sem pasta)</button>
+                  {folders.map((fo) => <button key={fo.id} onClick={() => bulkMover(fo.id)} className="block w-full px-3 py-1.5 text-left text-sm text-gray-600 hover:bg-gray-50">📁 {fo.name}</button>)}
+                  {folders.length === 0 && <div className="px-3 py-1.5 text-xs text-gray-400">crie uma pasta primeiro</div>}
+                  <button onClick={bulkExcluir} className="mt-1 block w-full border-t border-gray-100 px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50">🗑 Excluir selecionados</button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -128,6 +183,7 @@ export default function Fluxos() {
           <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="border-b border-gray-100 text-left text-xs font-medium text-gray-400">
+                <th className="w-10 px-4 py-3"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-sky-500" /></th>
                 <th className="px-4 py-3">Nome</th>
                 <th className="px-4 py-3 text-center">Connections</th>
                 <th className="px-4 py-3 text-center">Execuções</th>
@@ -138,7 +194,8 @@ export default function Fluxos() {
             </thead>
             <tbody>
               {visible.map((f) => (
-                <tr key={f.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
+                <tr key={f.id} className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/60 ${selected.has(f.id) ? 'bg-sky-50/60' : ''}`}>
+                  <td className="px-4 py-3"><input type="checkbox" checked={selected.has(f.id)} onChange={() => toggleSel(f.id)} className="h-4 w-4 accent-sky-500" /></td>
                   <td className="px-4 py-3">
                     <a href={`/construtor?id=${f.id}`} className="flex items-center gap-2">
                       <span className="font-medium text-gray-800 hover:text-emerald-600">{f.name}</span>
@@ -177,7 +234,7 @@ export default function Fluxos() {
                   </td>
                 </tr>
               ))}
-              {visible.length === 0 && <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-gray-400">{q ? 'Nenhum fluxo encontrado.' : curFolder ? 'Pasta vazia. Mova fluxos pra cá pelo menu ⋮.' : 'Nenhum fluxo ainda.'}</td></tr>}
+              {visible.length === 0 && <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-gray-400">{q ? 'Nenhum fluxo encontrado.' : curFolder ? 'Pasta vazia. Mova fluxos pra cá pelo menu ⋮.' : 'Nenhum fluxo ainda.'}</td></tr>}
             </tbody>
           </table>
         </div>
