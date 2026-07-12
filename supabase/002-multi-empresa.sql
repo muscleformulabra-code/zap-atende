@@ -77,6 +77,7 @@ declare t text;
 begin
   foreach t in array array['contacts','messages','flows','flow_sessions','outbox','quick_replies']
   loop
+    if to_regclass(t) is null then continue; end if; -- pula tabela que não existe
     execute format(
       'alter table %I add column if not exists company_id uuid references companies(id) default ''00000000-0000-0000-0000-000000000001''',
       t);
@@ -88,14 +89,18 @@ begin
 end $$;
 
 -- ── 5) SETTINGS por empresa (antes era linha única id=1) ─────
-alter table settings drop constraint if exists settings_singleton;
-alter table settings add column if not exists company_id uuid references companies(id);
-update settings set company_id = '00000000-0000-0000-0000-000000000001' where company_id is null;
-create unique index if not exists idx_settings_company on settings(company_id);
--- Permite várias linhas de settings (uma por empresa): id passa a usar sequência.
-create sequence if not exists settings_id_seq owned by settings.id;
-alter table settings alter column id set default nextval('settings_id_seq');
-select setval('settings_id_seq', greatest(1, (select coalesce(max(id),1) from settings)));
+do $$
+begin
+  if to_regclass('settings') is null then return; end if;
+  alter table settings drop constraint if exists settings_singleton;
+  alter table settings add column if not exists company_id uuid references companies(id);
+  update settings set company_id = '00000000-0000-0000-0000-000000000001' where company_id is null;
+  create unique index if not exists idx_settings_company on settings(company_id);
+  -- Permite várias linhas de settings (uma por empresa): id passa a usar sequência.
+  create sequence if not exists settings_id_seq owned by settings.id;
+  alter table settings alter column id set default nextval('settings_id_seq');
+  perform setval('settings_id_seq', greatest(1, (select coalesce(max(id),1) from settings)));
+end $$;
 
 -- ── 6) VIEW de conversas com company_id (pra filtrar por empresa) ──
 -- company_id vai POR ÚLTIMO (create-or-replace só deixa ADICIONAR no fim).
