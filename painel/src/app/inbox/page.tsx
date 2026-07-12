@@ -263,7 +263,7 @@ export default function Inbox() {
 
   async function apagarMsg(m: Msg) {
     if (!m.from_me) return
-    if (!confirm('Apagar esta mensagem? Ela some pra você e pro paciente.')) return
+    if (!confirm('Apagar para todos?\n\nSe a mensagem ainda estiver no prazo do WhatsApp (mensagens recentes), some pra você E pro paciente. Se for antiga, some só do seu inbox.')) return
     setMsgs((list) => list.filter((x) => x.id !== m.id)) // some na hora
     await fetch('/api/delete-message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id }) }).catch(() => {})
   }
