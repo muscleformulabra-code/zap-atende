@@ -65,7 +65,7 @@ export default function Fluxos() {
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-8">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-3 pr-12">
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-[26px] font-extrabold tracking-tight text-gray-900">Fluxos de conversa</h1>
           <p className="text-sm text-gray-500">Seus chatbots e os fluxos base que o robô usa automaticamente.</p>

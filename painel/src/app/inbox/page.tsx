@@ -18,6 +18,24 @@ type Card = { id: string; name: string | null; phone: string | null; jid: string
 type Attendant = { id: string; email: string; name: string | null }
 type FlowItem = { id: string; name: string; is_active?: boolean }
 
+// Beep de notificação (Web Audio) — usado quando chega mensagem nova do
+// paciente e o som está ligado (toggle na faixa superior).
+function beepNotify() {
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+    const ctx = new Ctx()
+    const o = ctx.createOscillator()
+    const g = ctx.createGain()
+    o.connect(g); g.connect(ctx.destination)
+    o.type = 'sine'; o.frequency.value = 880
+    g.gain.setValueAtTime(0.0001, ctx.currentTime)
+    g.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.02)
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25)
+    o.start(); o.stop(ctx.currentTime + 0.26)
+    o.onended = () => ctx.close()
+  } catch {}
+}
+
 function hora(iso: string | null) {
   if (!iso) return ''
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
@@ -58,6 +76,7 @@ export default function Inbox() {
   const endRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const lastInboundAt = useRef<number | null>(null) // pra tocar o som só em msg nova do paciente
 
   useEffect(() => {
     fetch('/api/quick-replies').then((r) => r.json()).then(setQuickReplies).catch(() => {})
@@ -73,7 +92,19 @@ export default function Inbox() {
 
   const loadConvs = useCallback(async () => {
     const r = await fetch('/api/conversations')
-    setConvs(await r.json())
+    const data: Conversa[] = await r.json()
+    setConvs(data)
+    // Som de notificação: toca quando chega mensagem NOVA do paciente (não a nossa)
+    // e o som está ligado no toggle da faixa superior. Não toca na 1ª carga.
+    try {
+      const maxIn = data
+        .filter((c) => c.last_from_me === false && c.last_sent_at)
+        .reduce((m, c) => Math.max(m, Date.parse(c.last_sent_at as string)), 0)
+      if (lastInboundAt.current !== null && maxIn > lastInboundAt.current && localStorage.getItem('za_sound') === '1') {
+        beepNotify()
+      }
+      lastInboundAt.current = Math.max(lastInboundAt.current ?? 0, maxIn)
+    } catch {}
   }, [])
   const loadMsgs = useCallback(async (id: string) => {
     const r = await fetch(`/api/messages?contactId=${id}`)
@@ -333,7 +364,7 @@ export default function Inbox() {
       {sel && (
         <aside className="w-80 shrink-0 overflow-y-auto border-l border-gray-200 bg-white">
           {/* nome + avatar (pt maior: não encostar no menu de perfil do topo direito) */}
-          <div className="flex flex-col items-center px-4 pb-3 pt-14">
+          <div className="flex flex-col items-center px-4 pb-3 pt-5">
             <div className="mb-3 w-full truncate text-center text-lg font-bold text-gray-900">{sel.name?.trim() || sel.phone || 'Sem nome'}</div>
             <Avatar name={sel.name} phone={sel.phone} src={card?.avatar_url} className="h-24 w-24 text-2xl" />
           </div>
