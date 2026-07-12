@@ -27,7 +27,7 @@ const ICONS: Record<PermKey, ReactNode> = {
 const GROUPS: { title: string | null; keys: PermKey[] }[] = [
   { title: null, keys: ['painel'] },
   { title: 'Atendimento', keys: ['inbox', 'contatos', 'fluxos', 'respostas'] },
-  { title: 'Sistema', keys: ['config', 'equipe'] },
+  { title: 'Sistema', keys: ['config'] }, // Equipe agora fica dentro de Configurações
 ]
 
 const labelFor = (k: PermKey) => PERM_LIST.find((i) => i.key === k)?.label ?? k
