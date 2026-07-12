@@ -72,14 +72,24 @@ export type Message = {
   from_me: boolean
   text: string | null
   sent_at: string | null
+  media_url?: string | null
+  media_type?: string | null
 }
 
 export async function getMessages(contactId: string): Promise<Message[]> {
   const c = await cid()
-  const res = await rest(
-    `messages?company_id=eq.${c}&contact_id=eq.${contactId}&select=id,from_me,text,sent_at&order=sent_at.asc&limit=300`
-  )
-  return res.json()
+  try {
+    const res = await rest(
+      `messages?company_id=eq.${c}&contact_id=eq.${contactId}&select=id,from_me,text,sent_at,media_url,media_type&order=sent_at.asc&limit=300`
+    )
+    return res.json()
+  } catch {
+    // Colunas de mídia ainda não migradas → busca sem elas.
+    const res = await rest(
+      `messages?company_id=eq.${c}&contact_id=eq.${contactId}&select=id,from_me,text,sent_at&order=sent_at.asc&limit=300`
+    )
+    return res.json()
+  }
 }
 
 export async function getContactJid(contactId: string): Promise<string | null> {

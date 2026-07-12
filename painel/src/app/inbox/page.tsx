@@ -13,7 +13,7 @@ type Conversa = {
   last_sent_at: string | null
   status: string
 }
-type Msg = { id: string; from_me: boolean; text: string | null; sent_at: string | null }
+type Msg = { id: string; from_me: boolean; text: string | null; sent_at: string | null; media_url?: string | null; media_type?: string | null }
 type Card = { id: string; name: string | null; phone: string | null; jid: string; avatar_url: string | null; created_at: string; status: string; assigned_to: string | null; note: string | null }
 type Attendant = { id: string; email: string; name: string | null }
 type FlowItem = { id: string; name: string; is_active?: boolean }
@@ -325,12 +325,29 @@ export default function Inbox() {
             </header>
 
             <div ref={scrollRef} className="flex flex-1 flex-col gap-1 overflow-y-auto p-4">
-              {msgs.map((m) => (
-                <div key={m.id} className={`max-w-[70%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm shadow-sm ${m.from_me ? 'self-end rounded-tr-sm bg-[#dcf8c6] text-gray-800' : 'self-start rounded-tl-sm bg-white text-gray-800'}`}>
-                  {m.text || <span className="italic text-gray-400">[mídia]</span>}
-                  <div className="mt-0.5 text-right text-[10px] text-gray-400">{hora(m.sent_at)}</div>
-                </div>
-              ))}
+              {msgs.map((m) => {
+                const hasMedia = !!m.media_url
+                const caption = m.text && !/^\[.*\]$/.test(m.text.trim()) ? m.text : null // ignora rótulos "[imagem]"
+                return (
+                  <div key={m.id} className={`max-w-[70%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm shadow-sm ${m.from_me ? 'self-end rounded-tr-sm bg-[#dcf8c6] text-gray-800' : 'self-start rounded-tl-sm bg-white text-gray-800'}`}>
+                    {hasMedia ? (
+                      <>
+                        {m.media_type === 'image' && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <a href={m.media_url!} target="_blank" rel="noreferrer"><img src={m.media_url!} alt="imagem" className="max-h-72 max-w-full cursor-pointer rounded-lg" /></a>
+                        )}
+                        {m.media_type === 'audio' && <audio controls src={m.media_url!} className="max-w-full" />}
+                        {m.media_type === 'video' && <video controls src={m.media_url!} className="max-h-72 max-w-full rounded-lg" />}
+                        {m.media_type === 'document' && <a href={m.media_url!} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-emerald-700 underline">📄 {m.text?.replace(/^\[|\]$/g, '') || 'documento'}</a>}
+                        {caption && <div className="mt-1">{caption}</div>}
+                      </>
+                    ) : (
+                      m.text || <span className="italic text-gray-400">[mídia]</span>
+                    )}
+                    <div className="mt-0.5 text-right text-[10px] text-gray-400">{hora(m.sent_at)}</div>
+                  </div>
+                )
+              })}
               <div ref={endRef} />
             </div>
 
