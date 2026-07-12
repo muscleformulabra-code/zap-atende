@@ -319,6 +319,15 @@ export async function deleteContact(id: string): Promise<void> {
   await rest(`contacts?id=eq.${id}&company_id=eq.${c}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } })
 }
 
+// Exclui TODOS os contatos da empresa (e mensagens em cascata). Destrutivo —
+// a rota exige confirmação digitada. Retorna quantos foram apagados.
+export async function deleteAllContacts(): Promise<number> {
+  const c = await cid()
+  const before = await count(`contacts?company_id=eq.${c}&select=id`)
+  await rest(`contacts?company_id=eq.${c}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } })
+  return before
+}
+
 export async function getContactCard(contactId: string): Promise<ContactCard | null> {
   const c = await cid()
   const rows = await (await rest(`contacts?id=eq.${contactId}&company_id=eq.${c}&select=*`)).json()
