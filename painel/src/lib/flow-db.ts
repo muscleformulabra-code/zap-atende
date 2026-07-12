@@ -2,6 +2,7 @@
 // Guardamos o GRAFO visual em `definition`; o motor deriva na hora.
 import { blankGraph, defaultGraph, graphToFlow, type FlowGraph } from './flow-graph'
 import type { Flows } from './flow-engine'
+import { currentCompanyId, SEED_COMPANY_ID } from './company'
 
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY
@@ -15,6 +16,12 @@ const H = {
   apikey: SUPABASE_SERVICE_KEY,
   Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
   'Content-Type': 'application/json',
+}
+
+// Empresa do request (fluxos são isolados por empresa). SEED = fallback do
+// conector (que hoje atende só a Empresa #1).
+async function cid(explicit?: string): Promise<string> {
+  return explicit ?? (await currentCompanyId()) ?? SEED_COMPANY_ID
 }
 
 export type FlowRow = {
@@ -31,38 +38,42 @@ async function req(path: string, init: RequestInit = {}): Promise<Response> {
   return res
 }
 
-// Lista todos os fluxos. Na 1ª vez, cria o fluxo padrão (ativo).
+// Lista todos os fluxos da empresa. Na 1ª vez, cria o fluxo padrão (ativo).
 export async function listFlows(): Promise<FlowRow[]> {
-  const rows: FlowRow[] = await (await req('flows?select=*&order=updated_at.desc')).json()
+  const c = await cid()
+  const rows: FlowRow[] = await (await req(`flows?company_id=eq.${c}&select=*&order=updated_at.desc`)).json()
   if (rows.length > 0) return rows
   const created: FlowRow[] = await (
     await req('flows', {
       method: 'POST',
       headers: { Prefer: 'return=representation' },
-      body: JSON.stringify({ name: 'Pré-atendimento', is_active: true, definition: defaultGraph }),
+      body: JSON.stringify({ name: 'Pré-atendimento', is_active: true, definition: defaultGraph, company_id: c }),
     })
   ).json()
   return created
 }
 
 export async function getFlow(id: string): Promise<FlowRow | null> {
-  const rows: FlowRow[] = await (await req(`flows?id=eq.${id}&select=*&limit=1`)).json()
+  const c = await cid()
+  const rows: FlowRow[] = await (await req(`flows?id=eq.${id}&company_id=eq.${c}&select=*&limit=1`)).json()
   return rows[0] ?? null
 }
 
 export async function createFlow(name: string): Promise<FlowRow> {
+  const c = await cid()
   const rows: FlowRow[] = await (
     await req('flows', {
       method: 'POST',
       headers: { Prefer: 'return=representation' },
-      body: JSON.stringify({ name, is_active: false, definition: blankGraph() }),
+      body: JSON.stringify({ name, is_active: false, definition: blankGraph(), company_id: c }),
     })
   ).json()
   return rows[0]
 }
 
 export async function updateFlowDefinition(id: string, definition: FlowGraph): Promise<void> {
-  await req(`flows?id=eq.${id}`, {
+  const c = await cid()
+  await req(`flows?id=eq.${id}&company_id=eq.${c}`, {
     method: 'PATCH',
     headers: { Prefer: 'return=minimal' },
     body: JSON.stringify({ definition, updated_at: new Date().toISOString() }),
@@ -70,7 +81,8 @@ export async function updateFlowDefinition(id: string, definition: FlowGraph): P
 }
 
 export async function renameFlow(id: string, name: string): Promise<void> {
-  await req(`flows?id=eq.${id}`, {
+  const c = await cid()
+  await req(`flows?id=eq.${id}&company_id=eq.${c}`, {
     method: 'PATCH',
     headers: { Prefer: 'return=minimal' },
     body: JSON.stringify({ name, updated_at: new Date().toISOString() }),
@@ -78,17 +90,20 @@ export async function renameFlow(id: string, name: string): Promise<void> {
 }
 
 export async function deleteFlow(id: string): Promise<void> {
-  await req(`flows?id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } })
+  const c = await cid()
+  await req(`flows?id=eq.${id}&company_id=eq.${c}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } })
 }
 
-// Marca um fluxo como ativo (o que atende contatos novos) e desativa os outros.
+// Marca um fluxo como ativo (o que atende contatos novos) e desativa os outros
+// DA MESMA EMPRESA (não mexe nos fluxos das outras).
 export async function setActiveFlow(id: string): Promise<void> {
-  await req('flows?is_active=eq.true', {
+  const c = await cid()
+  await req(`flows?is_active=eq.true&company_id=eq.${c}`, {
     method: 'PATCH',
     headers: { Prefer: 'return=minimal' },
     body: JSON.stringify({ is_active: false }),
   })
-  await req(`flows?id=eq.${id}`, {
+  await req(`flows?id=eq.${id}&company_id=eq.${c}`, {
     method: 'PATCH',
     headers: { Prefer: 'return=minimal' },
     body: JSON.stringify({ is_active: true }),

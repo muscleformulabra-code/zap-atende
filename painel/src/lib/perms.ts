@@ -71,3 +71,14 @@ export function secondsUntilExpiry(token: string): number | null {
   if (!payload?.exp) return null
   return payload.exp - Math.floor(Date.now() / 1000)
 }
+
+// Permissões vindas do cookie za_perms (JSON do vínculo com a empresa).
+// Vazio/ausente = dono/admin (acesso total).
+export function permsFromCookie(value?: string | null): Perms | null {
+  if (!value) return null
+  try {
+    return normalizePerms(JSON.parse(value))
+  } catch {
+    return null
+  }
+}

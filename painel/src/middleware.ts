@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { PERM_LIST, permForPath, permsFromJwt, secondsUntilExpiry } from './lib/perms'
+import { PERM_LIST, permForPath, permsFromCookie, secondsUntilExpiry } from './lib/perms'
 
-// Rotas abertas (sem login): tela de login, APIs de auth, e as APIs que o
-// CONECTOR (servidor externo) chama sem cookie.
-const OPEN = ['/login', '/api/login', '/api/logout', '/api/simulate', '/api/settings']
+// Rotas abertas (sem login): login, cadastro público, APIs de auth, e as APIs
+// que o CONECTOR (servidor externo) chama sem cookie.
+const OPEN = ['/login', '/cadastro', '/api/login', '/api/signup', '/api/logout', '/api/simulate', '/api/settings']
+
+// Rotas liberadas pra quem está logado mas AINDA não tem empresa (aguardando
+// convite): a tela de espera, o perfil e as APIs que elas usam.
+const NO_COMPANY_OK = ['/aguardando', '/perfil', '/api/profile', '/api/me']
 
 const RENEW_OPTS = { path: '/', maxAge: 60 * 60 * 24 * 30, sameSite: 'lax' as const, httpOnly: true }
 
@@ -52,6 +56,16 @@ export async function middleware(req: NextRequest) {
   const refreshToken = req.cookies.get('za_refresh')?.value
   if (!token && !refreshToken) return toLogin(req)
 
+  // Logado mas sem empresa (aguardando convite): só pode ver a tela de espera
+  // e o perfil. Qualquer outra rota → manda pra /aguardando.
+  const company = req.cookies.get('za_company')?.value
+  const noCompanyOk = NO_COMPANY_OK.some((p) => pathname === p || pathname.startsWith(p + '/'))
+  if (!company && !noCompanyOk) {
+    const url = req.nextUrl.clone()
+    url.pathname = '/aguardando'
+    return NextResponse.redirect(url)
+  }
+
   // Renova quando o token está expirado ou faltando <2min pra expirar — assim
   // ninguém é deslogado no meio do atendimento. A sessão só cai se o
   // refresh_token também morrer (30 dias sem usar).
@@ -65,10 +79,11 @@ export async function middleware(req: NextRequest) {
     activeToken = renewed.access_token
   }
 
-  // Bloqueio por permissão (só páginas; APIs passam). perms=null => dono/admin.
+  // Bloqueio por permissão (só páginas; APIs passam). Lê do cookie za_perms
+  // (permissões dentro da empresa). Vazio = dono/admin (acesso total).
   const need = permForPath(pathname)
-  if (need && activeToken) {
-    const perms = permsFromJwt(activeToken)
+  if (need) {
+    const perms = permsFromCookie(req.cookies.get('za_perms')?.value)
     if (perms && !perms[need]) {
       const dest = PERM_LIST.find((p) => perms[p.key])?.href ?? '/login'
       const url = req.nextUrl.clone()

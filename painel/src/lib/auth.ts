@@ -42,6 +42,24 @@ export async function refreshSession(refreshToken: string): Promise<AuthResult |
   }
 }
 
+// Cadastro público: cria a CONTA (sem empresa). O acesso ao chatbot só vem
+// depois, quando um admin convida o e-mail (vira membro). email_confirm=true
+// pra a pessoa já poder entrar sem depender de e-mail de confirmação.
+export async function signUp(email: string, password: string, name?: string): Promise<{ id: string; email: string }> {
+  const r = await fetch(`${URL}/auth/v1/admin/users`, {
+    method: 'POST',
+    headers: { apikey: SERVICE!, Authorization: `Bearer ${SERVICE}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email.trim().toLowerCase(), password, email_confirm: true, user_metadata: { name: name?.trim() || null } }),
+    cache: 'no-store',
+  })
+  const d = await r.json()
+  if (!r.ok) {
+    const msg = d.msg || d.error_description || d.error || 'Erro ao cadastrar'
+    throw new Error(/already|registered|exists/i.test(String(msg)) ? 'Esse e-mail já tem conta. É só entrar.' : msg)
+  }
+  return d
+}
+
 // Cria um atendente (admin API, com a service key) com suas permissões e nome.
 export async function createUser(email: string, password: string, perms?: Partial<Perms>, name?: string) {
   const r = await fetch(`${URL}/auth/v1/admin/users`, {

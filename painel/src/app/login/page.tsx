@@ -20,7 +20,7 @@ export default function Login() {
       })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error || 'Falha no login')
-      window.location.href = '/'
+      window.location.href = d.hasCompany === false ? '/aguardando' : '/'
     } catch (e) {
       setErr((e as Error).message)
     } finally {
@@ -52,6 +52,11 @@ export default function Login() {
         <button type="submit" disabled={loading} className="w-full rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 py-2.5 text-sm font-semibold text-white shadow-md shadow-emerald-200 transition hover:from-emerald-600 hover:to-teal-600 disabled:opacity-60">
           {loading ? 'entrando…' : 'Entrar'}
         </button>
+
+        <p className="mt-4 text-center text-sm text-gray-500">
+          Não tem conta?{' '}
+          <a href="/cadastro" className="font-semibold text-emerald-600 hover:underline">Cadastre-se</a>
+        </p>
       </form>
     </main>
   )

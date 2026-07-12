@@ -1,40 +1,63 @@
 import { NextResponse } from 'next/server'
-import { createUser, deleteUser, listUsers, updateUser } from '@/lib/auth'
+import { currentMembership } from '@/lib/company'
+import { listMembers, listInvites, createInvite, revokeInvite, updateMember, removeMember, type Member, type Invite } from '@/lib/team'
+import type { Role } from '@/lib/company'
 
-export async function GET() {
-  return NextResponse.json(await listUsers())
+// Só admin (perms=null) ou quem tem a permissão "equipe" gerencia o time.
+async function requireAdmin() {
+  const m = await currentMembership()
+  if (!m) return null
+  if (m.perms && !m.perms.equipe) return null
+  return m
 }
 
+export async function GET() {
+  const m = await requireAdmin()
+  if (!m) return NextResponse.json({ error: 'Sem permissão' }, { status: 403 })
+  const [members, invites]: [Member[], Invite[]] = await Promise.all([
+    listMembers(m.company_id),
+    listInvites(m.company_id),
+  ])
+  return NextResponse.json({ members, invites, meId: m.id })
+}
+
+// Convidar por e-mail.
 export async function POST(req: Request) {
-  const { email, password, perms, name } = await req.json().catch(() => ({}))
-  if (!email || !password) return NextResponse.json({ error: 'Informe e-mail e senha' }, { status: 400 })
-  if (String(password).length < 6) return NextResponse.json({ error: 'Senha mínima de 6 caracteres' }, { status: 400 })
+  const m = await requireAdmin()
+  if (!m) return NextResponse.json({ error: 'Sem permissão' }, { status: 403 })
+  const { email, perms, role } = await req.json().catch(() => ({}))
+  if (!email) return NextResponse.json({ error: 'Informe o e-mail' }, { status: 400 })
   try {
-    const u = await createUser(email, password, perms, name)
-    return NextResponse.json({ id: u.id, email: u.email })
+    const r = await createInvite(m.company_id, email, (role as Role) || 'member', perms ?? null, m.email)
+    return NextResponse.json({ ok: true, linkedNow: r.linkedNow })
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 })
   }
 }
 
-// Atualiza permissões e/ou nome de um atendente.
+// Atualizar papel/permissões de um membro.
 export async function PATCH(req: Request) {
-  const { id, perms, name } = await req.json().catch(() => ({}))
+  const m = await requireAdmin()
+  if (!m) return NextResponse.json({ error: 'Sem permissão' }, { status: 403 })
+  const { id, perms, role } = await req.json().catch(() => ({}))
   if (!id) return NextResponse.json({ error: 'id obrigatório' }, { status: 400 })
   try {
-    const patch: { perms?: typeof perms; name?: string } = {}
-    if (perms !== undefined) patch.perms = perms
-    if (name !== undefined) patch.name = name
-    await updateUser(id, patch)
+    await updateMember(id, m.company_id, { perms, role })
     return NextResponse.json({ ok: true })
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 })
   }
 }
 
+// Remover membro (?id=) ou revogar convite (?invite=).
 export async function DELETE(req: Request) {
-  const id = new URL(req.url).searchParams.get('id')
-  if (!id) return NextResponse.json({ error: 'id obrigatório' }, { status: 400 })
-  await deleteUser(id)
+  const m = await requireAdmin()
+  if (!m) return NextResponse.json({ error: 'Sem permissão' }, { status: 403 })
+  const url = new URL(req.url)
+  const id = url.searchParams.get('id')
+  const invite = url.searchParams.get('invite')
+  if (invite) await revokeInvite(invite, m.company_id)
+  else if (id) await removeMember(id, m.company_id)
+  else return NextResponse.json({ error: 'id ou invite obrigatório' }, { status: 400 })
   return NextResponse.json({ ok: true })
 }

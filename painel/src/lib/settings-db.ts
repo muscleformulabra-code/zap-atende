@@ -1,4 +1,6 @@
-// Configurações da plataforma (linha única id=1) via Supabase REST.
+// Configurações da plataforma (uma linha POR EMPRESA) via Supabase REST.
+
+import { currentCompanyId, SEED_COMPANY_ID } from './company'
 
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY
@@ -14,6 +16,10 @@ const H = {
   'Content-Type': 'application/json',
 }
 
+async function cid(explicit?: string): Promise<string> {
+  return explicit ?? (await currentCompanyId()) ?? SEED_COMPANY_ID
+}
+
 export type Hours = { days: number[]; start: string; end: string }
 export type Settings = {
   bot_enabled: boolean
@@ -27,15 +33,26 @@ export type Settings = {
 }
 
 export async function getSettings(): Promise<Settings> {
-  const res = await fetch(`${REST}/settings?id=eq.1&select=*&limit=1`, { headers: H, cache: 'no-store' })
+  const c = await cid()
+  const res = await fetch(`${REST}/settings?company_id=eq.${c}&select=*&limit=1`, { headers: H, cache: 'no-store' })
   if (!res.ok) throw new Error(`getSettings ${res.status}: ${await res.text()}`)
   const rows = await res.json()
+  if (rows[0]) return rows[0]
+  // Empresa nova ainda sem linha de configurações → cria com os padrões.
+  const created = await fetch(`${REST}/settings`, {
+    method: 'POST',
+    headers: { ...H, Prefer: 'return=representation' },
+    body: JSON.stringify({ company_id: c }),
+    cache: 'no-store',
+  })
+  if (created.ok) return (await created.json())[0]
   return rows[0]
 }
 
 export async function saveSettings(patch: Partial<Settings>): Promise<void> {
+  const c = await cid()
   const put = async (body: Record<string, unknown>) =>
-    fetch(`${REST}/settings?id=eq.1`, {
+    fetch(`${REST}/settings?company_id=eq.${c}`, {
       method: 'PATCH',
       headers: { ...H, Prefer: 'return=minimal' },
       body: JSON.stringify({ ...body, updated_at: new Date().toISOString() }),

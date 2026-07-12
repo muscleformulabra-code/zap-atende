@@ -37,25 +37,29 @@ export default function Sidebar() {
   const p = usePathname()
   const [perms, setPerms] = useState<Perms>(ALL_TRUE)
   const [email, setEmail] = useState<string | null>(null)
+  const [name, setName] = useState<string | null>(null)
   const [online, setOnline] = useState<boolean | null>(null)
+
+  // Telas de autenticação (sem sidebar).
+  const AUTH = p === '/login' || p === '/cadastro' || p === '/aguardando'
 
   useEffect(() => {
     fetch('/api/me')
       .then((r) => r.json())
-      .then((d) => { setPerms(d.perms ?? ALL_TRUE); setEmail(d.email ?? null) })
+      .then((d) => { setPerms(d.perms ?? ALL_TRUE); setEmail(d.email ?? null); setName(d.name ?? null) })
       .catch(() => {})
   }, [])
 
   useEffect(() => {
-    if (p === '/login') return
+    if (AUTH) return
     let alive = true
     const ping = () => fetch('/api/status').then((r) => r.json()).then((d) => alive && setOnline(!!d.whatsapp)).catch(() => alive && setOnline(false))
     ping()
     const t = setInterval(ping, 30000)
     return () => { alive = false; clearInterval(t) }
-  }, [p])
+  }, [p, AUTH])
 
-  if (p === '/login') return null
+  if (AUTH) return null
 
   const active = permForPath(p)
 
@@ -115,12 +119,15 @@ export default function Sidebar() {
         </div>
 
         {email && (
-          <div className="flex items-center gap-2.5 rounded-xl px-2 py-1.5">
+          <a href="/perfil" className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-gray-50" title="Editar perfil">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-[11px] font-semibold text-white">
-              {email.slice(0, 2).toUpperCase()}
+              {(name || email).slice(0, 2).toUpperCase()}
             </span>
-            <span className="min-w-0 truncate text-xs font-medium text-gray-500">{email}</span>
-          </div>
+            <span className="min-w-0 flex-1 leading-tight">
+              <span className="block truncate text-xs font-semibold text-gray-700">{name || 'Meu perfil'}</span>
+              <span className="block truncate text-[11px] text-gray-400">{email}</span>
+            </span>
+          </a>
         )}
 
         <form action="/api/logout" method="post">

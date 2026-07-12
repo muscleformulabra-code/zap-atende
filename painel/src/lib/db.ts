@@ -1,5 +1,10 @@
 // Camada de dados: conversa com o Supabase via REST (PostgREST).
 // Usada só no servidor (server components) — a service key nunca vai pro navegador.
+//
+// MULTI-EMPRESA: toda consulta é isolada por company_id (a empresa do atendente
+// logado). Assim uma empresa nunca vê os dados da outra. O company_id é
+// resolvido do cookie de sessão via currentCompanyId().
+import { currentCompanyId, SEED_COMPANY_ID } from './company'
 
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY
@@ -13,6 +18,12 @@ const authHeaders = {
   apikey: SUPABASE_SERVICE_KEY,
   Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
   'Content-Type': 'application/json',
+}
+
+// Empresa do request. Fallback SEED só p/ contexto sem login (o conector, que
+// hoje atende só a Empresa #1). Usuário logado sempre tem cookie za_company.
+async function cid(explicit?: string): Promise<string> {
+  return explicit ?? (await currentCompanyId()) ?? SEED_COMPANY_ID
 }
 
 async function rest(path: string, init: RequestInit = {}): Promise<Response> {
@@ -47,9 +58,10 @@ export type Conversation = {
 }
 
 export async function getConversations(): Promise<Conversation[]> {
+  const c = await cid()
   const [convs, sessions] = await Promise.all([
-    (await rest('conversations?select=*&order=last_sent_at.desc.nullslast&limit=100')).json(),
-    (await rest('flow_sessions?select=contact_id,status')).json(),
+    (await rest(`conversations?company_id=eq.${c}&select=*&order=last_sent_at.desc.nullslast&limit=100`)).json(),
+    (await rest(`flow_sessions?company_id=eq.${c}&select=contact_id,status`)).json(),
   ])
   const smap = new Map<string, string>((sessions as { contact_id: string; status: string }[]).map((s) => [s.contact_id, s.status]))
   return (convs as Omit<Conversation, 'status'>[]).map((c) => ({ ...c, status: smap.get(c.contact_id) ?? 'active' }))
@@ -63,14 +75,16 @@ export type Message = {
 }
 
 export async function getMessages(contactId: string): Promise<Message[]> {
+  const c = await cid()
   const res = await rest(
-    `messages?contact_id=eq.${contactId}&select=id,from_me,text,sent_at&order=sent_at.asc&limit=300`
+    `messages?company_id=eq.${c}&contact_id=eq.${contactId}&select=id,from_me,text,sent_at&order=sent_at.asc&limit=300`
   )
   return res.json()
 }
 
 export async function getContactJid(contactId: string): Promise<string | null> {
-  const res = await rest(`contacts?id=eq.${contactId}&select=jid`)
+  const c = await cid()
+  const res = await rest(`contacts?company_id=eq.${c}&id=eq.${contactId}&select=jid`)
   const rows = await res.json()
   return rows[0]?.jid ?? null
 }
@@ -80,7 +94,8 @@ export type QuickReply = { id: string; shortcut: string; text: string }
 
 export async function listQuickReplies(): Promise<QuickReply[]> {
   try {
-    const res = await rest('quick_replies?select=id,shortcut,text&order=shortcut.asc')
+    const c = await cid()
+    const res = await rest(`quick_replies?company_id=eq.${c}&select=id,shortcut,text&order=shortcut.asc`)
     return res.json()
   } catch {
     return [] // tabela ainda não criada
@@ -88,15 +103,17 @@ export async function listQuickReplies(): Promise<QuickReply[]> {
 }
 
 export async function createQuickReply(shortcut: string, text: string): Promise<void> {
+  const c = await cid()
   await rest('quick_replies', {
     method: 'POST',
     headers: { Prefer: 'return=minimal' },
-    body: JSON.stringify({ shortcut, text }),
+    body: JSON.stringify({ shortcut, text, company_id: c }),
   })
 }
 
 export async function deleteQuickReply(id: string): Promise<void> {
-  await rest(`quick_replies?id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } })
+  const c = await cid()
+  await rest(`quick_replies?id=eq.${id}&company_id=eq.${c}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } })
 }
 
 // Marca a sessão do contato como handoff (bot para de responder).
@@ -120,10 +137,11 @@ export async function setStatus(contactId: string, status: string): Promise<void
 }
 
 async function setSessionStatus(contactId: string, status: string): Promise<void> {
+  const c = await cid()
   await rest('flow_sessions?on_conflict=contact_id', {
     method: 'POST',
     headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify({ contact_id: contactId, status, updated_at: new Date().toISOString() }),
+    body: JSON.stringify({ contact_id: contactId, status, company_id: c, updated_at: new Date().toISOString() }),
   })
 }
 
@@ -132,6 +150,7 @@ export async function setFlowSession(
   contactId: string,
   state: { flowId: string | null; currentNode: string | null; status: string }
 ): Promise<void> {
+  const c = await cid()
   await rest('flow_sessions?on_conflict=contact_id', {
     method: 'POST',
     headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
@@ -140,6 +159,7 @@ export async function setFlowSession(
       flow_id: state.flowId,
       current_node: state.currentNode,
       status: state.status,
+      company_id: c,
       updated_at: new Date().toISOString(),
     }),
   })
@@ -148,6 +168,7 @@ export async function setFlowSession(
 // Reinicia a automação do contato: zera a posição e volta a "active", com
 // updated_at antigo pra que a próxima mensagem caia no fluxo de boas-vindas.
 export async function restartAutomation(contactId: string): Promise<void> {
+  const c = await cid()
   await rest('flow_sessions?on_conflict=contact_id', {
     method: 'POST',
     headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
@@ -156,6 +177,7 @@ export async function restartAutomation(contactId: string): Promise<void> {
       flow_id: null,
       current_node: null,
       status: 'active',
+      company_id: c,
       updated_at: new Date(0).toISOString(),
     }),
   })
@@ -175,10 +197,11 @@ export type ContactCard = {
 
 // Atribui (ou remove, com null) o atendente "dono" da conversa.
 export async function setAssigned(contactId: string, assignedTo: string | null): Promise<void> {
+  const c = await cid()
   await rest('flow_sessions?on_conflict=contact_id', {
     method: 'POST',
     headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify({ contact_id: contactId, assigned_to: assignedTo, updated_at: new Date().toISOString() }),
+    body: JSON.stringify({ contact_id: contactId, assigned_to: assignedTo, company_id: c, updated_at: new Date().toISOString() }),
   })
 }
 
@@ -205,7 +228,8 @@ function normTags(tags?: string[] | null): string[] {
 }
 
 export async function listContacts(search?: string, tag?: string, limit = 1000): Promise<ContactRow[]> {
-  let path = `contacts?select=id,name,phone,jid,created_at,tags,avatar_url&order=created_at.desc&limit=${limit}`
+  const c = await cid()
+  let path = `contacts?company_id=eq.${c}&select=id,name,phone,jid,created_at,tags,avatar_url&order=created_at.desc&limit=${limit}`
   if (search && search.trim()) {
     const s = encodeURIComponent(search.trim())
     path += `&or=(name.ilike.*${s}*,phone.ilike.*${s}*)`
@@ -219,7 +243,7 @@ export async function listContacts(search?: string, tag?: string, limit = 1000):
     return (rows as ContactRow[]).map((r) => ({ ...r, tags: r.tags ?? [], avatar_url: r.avatar_url ?? null }))
   } catch {
     // Colunas tags/avatar_url ainda não criadas → busca só o básico.
-    const fallback = `contacts?select=id,name,phone,jid,created_at&order=created_at.desc&limit=${limit}` + (search && search.trim() ? `&or=(name.ilike.*${encodeURIComponent(search.trim())}*,phone.ilike.*${encodeURIComponent(search.trim())}*)` : '')
+    const fallback = `contacts?company_id=eq.${c}&select=id,name,phone,jid,created_at&order=created_at.desc&limit=${limit}` + (search && search.trim() ? `&or=(name.ilike.*${encodeURIComponent(search.trim())}*,phone.ilike.*${encodeURIComponent(search.trim())}*)` : '')
     const rows = await (await rest(fallback)).json()
     return (rows as Omit<ContactRow, 'tags' | 'avatar_url'>[]).map((r) => ({ ...r, tags: [], avatar_url: null }))
   }
@@ -228,8 +252,9 @@ export async function listContacts(search?: string, tag?: string, limit = 1000):
 // Lista todas as etiquetas em uso, com a contagem de contatos por etiqueta.
 export async function listTags(): Promise<{ tag: string; count: number }[]> {
   try {
+    const c = await cid()
     const rows: { tags: string[] | null }[] = await (
-      await rest('contacts?select=tags&tags=not.is.null&limit=5000')
+      await rest(`contacts?company_id=eq.${c}&select=tags&tags=not.is.null&limit=5000`)
     ).json()
     const acc: Record<string, number> = {}
     for (const r of rows) for (const t of r.tags ?? []) if (t) acc[t] = (acc[t] || 0) + 1
@@ -242,21 +267,25 @@ export async function listTags(): Promise<{ tag: string; count: number }[]> {
 }
 
 export async function countContacts(): Promise<number> {
-  return count('contacts?select=id')
+  const c = await cid()
+  return count(`contacts?company_id=eq.${c}&select=id`)
 }
 
 // Upsert de contatos por jid. Tenta com `tags`; se a coluna ainda não existir
 // no banco, refaz sem `tags` (assim a importação nunca quebra na transição).
+// company_id é carimbado em cada linha (isola a empresa).
 async function upsertContacts(rows: Record<string, unknown>[]): Promise<void> {
+  const c = await cid()
+  const stamped: Record<string, unknown>[] = rows.map((r) => ({ ...r, company_id: c }))
   try {
     await rest('contacts?on_conflict=jid', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify(rows),
+      body: JSON.stringify(stamped),
     })
   } catch (e) {
-    if (!rows.some((r) => 'tags' in r)) throw e
-    const semTags = rows.map(({ tags, ...rest }) => rest) // eslint-disable-line @typescript-eslint/no-unused-vars
+    if (!stamped.some((r) => 'tags' in r)) throw e
+    const semTags = stamped.map(({ tags, ...rest }) => rest) // eslint-disable-line @typescript-eslint/no-unused-vars
     await rest('contacts?on_conflict=jid', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
@@ -286,11 +315,13 @@ export async function importContacts(rows: { name?: string; phone: string; tags?
 
 // Exclui um contato (usado pelo menu ⋮ da lista).
 export async function deleteContact(id: string): Promise<void> {
-  await rest(`contacts?id=eq.${id}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } })
+  const c = await cid()
+  await rest(`contacts?id=eq.${id}&company_id=eq.${c}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } })
 }
 
 export async function getContactCard(contactId: string): Promise<ContactCard | null> {
-  const rows = await (await rest(`contacts?id=eq.${contactId}&select=*`)).json()
+  const c = await cid()
+  const rows = await (await rest(`contacts?id=eq.${contactId}&company_id=eq.${c}&select=*`)).json()
   const contact = rows[0]
   if (!contact) return null
   const sess = await (await rest(`flow_sessions?contact_id=eq.${contactId}&select=status,assigned_to`)).json()
@@ -322,15 +353,16 @@ export type Analytics = {
 
 // Análise completa por período [fromISO, toISO).
 export async function getAnalytics(fromISO: string, toISO: string): Promise<Analytics> {
+  const c = await cid()
   const [leadsTotal, leadsPeriodo, fechadas, emAtendimento, convsRaw, sessRaw, msgs] = await Promise.all([
-    count('contacts?select=id'),
-    count(`contacts?select=id&created_at=gte.${fromISO}&created_at=lt.${toISO}`),
-    count(`flow_sessions?select=contact_id&status=eq.done&updated_at=gte.${fromISO}&updated_at=lt.${toISO}`),
-    count('flow_sessions?select=contact_id&status=eq.handoff'),
+    count(`contacts?company_id=eq.${c}&select=id`),
+    count(`contacts?company_id=eq.${c}&select=id&created_at=gte.${fromISO}&created_at=lt.${toISO}`),
+    count(`flow_sessions?company_id=eq.${c}&select=contact_id&status=eq.done&updated_at=gte.${fromISO}&updated_at=lt.${toISO}`),
+    count(`flow_sessions?company_id=eq.${c}&select=contact_id&status=eq.handoff`),
     // conversas onde o PACIENTE falou por último (candidatas a "aguardando")
-    rest('conversations?select=contact_id,name,phone,last_text,last_sent_at&last_from_me=is.false&order=last_sent_at.asc.nullslast&limit=300').then((r) => r.json()),
-    rest('flow_sessions?select=contact_id,status').then((r) => r.json()),
-    rest(`messages?select=from_me,sent_at,contact_id,sent_by&sent_at=gte.${fromISO}&sent_at=lt.${toISO}&order=contact_id,sent_at.asc&limit=20000`).then((r) => r.json()),
+    rest(`conversations?company_id=eq.${c}&select=contact_id,name,phone,last_text,last_sent_at&last_from_me=is.false&order=last_sent_at.asc.nullslast&limit=300`).then((r) => r.json()),
+    rest(`flow_sessions?company_id=eq.${c}&select=contact_id,status`).then((r) => r.json()),
+    rest(`messages?company_id=eq.${c}&select=from_me,sent_at,contact_id,sent_by&sent_at=gte.${fromISO}&sent_at=lt.${toISO}&order=contact_id,sent_at.asc&limit=20000`).then((r) => r.json()),
   ]) as [number, number, number, number, { contact_id: string; name: string | null; phone: string | null; last_text: string | null; last_sent_at: string | null }[], { contact_id: string; status: string }[], { from_me: boolean; sent_at: string; contact_id: string; sent_by: string | null }[]]
 
   // ── Leads AGUARDANDO resposta agora (exclui os concluídos) ──
@@ -395,11 +427,12 @@ export async function getStats(): Promise<Stats> {
   start.setHours(0, 0, 0, 0)
   const iso = start.toISOString()
 
+  const c = await cid()
   const [totalContatos, leadsHoje, aguardando, msgsHoje] = await Promise.all([
-    count('contacts?select=id'),
-    count(`contacts?select=id&created_at=gte.${iso}`),
-    count('conversations?select=contact_id&last_from_me=is.false'),
-    count(`messages?select=id&sent_at=gte.${iso}`),
+    count(`contacts?company_id=eq.${c}&select=id`),
+    count(`contacts?company_id=eq.${c}&select=id&created_at=gte.${iso}`),
+    count(`conversations?company_id=eq.${c}&select=contact_id&last_from_me=is.false`),
+    count(`messages?company_id=eq.${c}&select=id&sent_at=gte.${iso}`),
   ])
 
   return { totalContatos, leadsHoje, aguardando, msgsHoje }
