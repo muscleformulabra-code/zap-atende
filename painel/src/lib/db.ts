@@ -193,6 +193,20 @@ export type ContactCard = {
   created_at: string
   status: string
   assigned_to: string | null
+  note: string | null
+}
+
+// Atualiza campos editáveis do contato (nome, observação) pela ficha do inbox.
+export async function updateContact(contactId: string, patch: { name?: string | null; note?: string | null }): Promise<void> {
+  const c = await cid()
+  const body: Record<string, unknown> = {}
+  if (patch.name !== undefined) body.name = (patch.name || '').trim() || null
+  if (patch.note !== undefined) body.note = patch.note ?? null
+  await rest(`contacts?id=eq.${contactId}&company_id=eq.${c}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify(body),
+  })
 }
 
 // Atribui (ou remove, com null) o atendente "dono" da conversa.

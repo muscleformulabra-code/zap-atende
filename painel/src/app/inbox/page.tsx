@@ -14,7 +14,7 @@ type Conversa = {
   status: string
 }
 type Msg = { id: string; from_me: boolean; text: string | null; sent_at: string | null }
-type Card = { id: string; name: string | null; phone: string | null; jid: string; avatar_url: string | null; created_at: string; status: string; assigned_to: string | null }
+type Card = { id: string; name: string | null; phone: string | null; jid: string; avatar_url: string | null; created_at: string; status: string; assigned_to: string | null; note: string | null }
 type Attendant = { id: string; email: string; name: string | null }
 type FlowItem = { id: string; name: string; is_active?: boolean }
 
@@ -73,6 +73,11 @@ export default function Inbox() {
   const [team, setTeam] = useState<Attendant[]>([])
   const [myEmail, setMyEmail] = useState<string | null>(null)
   const [assignOpen, setAssignOpen] = useState(false)
+  const [editName, setEditName] = useState(false)
+  const [nameVal, setNameVal] = useState('')
+  const [note, setNote] = useState('')
+  const [noteSaved, setNoteSaved] = useState(false)
+  const [fichaFlow, setFichaFlow] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null) // container das mensagens (pra saber se está no fim)
   const justSelected = useRef(true) // ao abrir/trocar conversa, desce pro fim 1x
@@ -189,6 +194,25 @@ export default function Inbox() {
     setCard((c) => (c ? { ...c, assigned_to: name } : c))
     setAssignOpen(false)
     await fetch('/api/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contactId: sel.contact_id, assignedTo: name }) })
+  }
+
+  // Sincroniza a observação quando troca de contato (ou quando a ficha carrega).
+  useEffect(() => { setNote(card?.note ?? ''); setNoteSaved(false); setEditName(false); setFichaFlow(false) }, [sel?.contact_id, card?.note])
+
+  async function salvarNome() {
+    const novo = nameVal.trim()
+    setEditName(false)
+    if (!sel) return
+    setCard((c) => (c ? { ...c, name: novo || null } : c))
+    setSel((s) => (s ? { ...s, name: novo || null } : s))
+    setConvs((list) => list.map((x) => (x.contact_id === sel.contact_id ? { ...x, name: novo || null } : x)))
+    await fetch('/api/contact', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contactId: sel.contact_id, name: novo }) }).catch(() => {})
+  }
+
+  async function salvarNota() {
+    if (!sel) return
+    await fetch('/api/contact', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contactId: sel.contact_id, note }) }).catch(() => {})
+    setNoteSaved(true); setTimeout(() => setNoteSaved(false), 1500)
   }
 
   async function enviarFluxo(f: FlowItem) {
@@ -374,9 +398,39 @@ export default function Inbox() {
       {/* FICHA DO LEAD (padrão BotConversa) */}
       {sel && (
         <aside className="w-80 shrink-0 overflow-y-auto border-l border-gray-200 bg-white">
-          {/* nome + avatar (pt maior: não encostar no menu de perfil do topo direito) */}
-          <div className="flex flex-col items-center px-4 pb-3 pt-5">
-            <div className="mb-3 w-full truncate text-center text-lg font-bold text-gray-900">{sel.name?.trim() || sel.phone || 'Sem nome'}</div>
+          {/* nome (editável) + enviar fluxo + avatar */}
+          <div className="relative flex flex-col items-center px-4 pb-3 pt-5">
+            {/* Enviar fluxo (canto superior direito) */}
+            <div className="absolute right-3 top-3">
+              <button onClick={() => setFichaFlow((v) => !v)} title="Enviar fluxo" className="flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50">📄 Fluxo</button>
+              {fichaFlow && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setFichaFlow(false)} />
+                  <div className="absolute right-0 z-20 mt-1 max-h-64 w-56 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-xl">
+                    <div className="border-b border-gray-100 px-3 py-2 text-xs font-semibold text-gray-500">Enviar fluxo</div>
+                    {flows.map((f) => (
+                      <button key={f.id} onClick={() => { enviarFluxo(f); setFichaFlow(false) }} className="block w-full border-b border-gray-50 px-3 py-2 text-left text-sm text-gray-700 last:border-0 hover:bg-emerald-50">{f.name}</button>
+                    ))}
+                    {flows.length === 0 && <div className="px-3 py-3 text-xs text-gray-400">nenhum fluxo</div>}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {editName ? (
+              <div className="mb-3 w-full px-2">
+                <input value={nameVal} onChange={(e) => setNameVal(e.target.value.slice(0, 50))} autoFocus onKeyDown={(e) => { if (e.key === 'Enter') salvarNome() }} className="w-full rounded-lg border border-gray-300 p-2 text-center text-sm outline-none focus:border-emerald-500" />
+                <div className="mt-1.5 flex justify-center gap-3 text-xs">
+                  <button onClick={() => setEditName(false)} className="text-gray-400 hover:underline">cancelar</button>
+                  <button onClick={salvarNome} className="font-semibold text-emerald-600 hover:underline">salvar</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => { setNameVal(sel.name || ''); setEditName(true) }} className="mb-3 flex max-w-full items-center justify-center gap-1.5 text-lg font-bold text-gray-900 transition hover:text-emerald-600" title="Editar nome">
+                <span className="truncate">{sel.name?.trim() || sel.phone || 'Sem nome'}</span>
+                <span className="text-sm text-gray-400">✏️</span>
+              </button>
+            )}
             <Avatar name={sel.name} phone={sel.phone} src={card?.avatar_url} className="h-24 w-24 text-2xl" />
           </div>
 
@@ -440,6 +494,16 @@ export default function Inbox() {
               </div>
             )}
             {assignedTo && <button onClick={() => atribuir(null)} className="w-full py-1 text-center text-sm font-medium text-red-500 hover:underline">Remover Atribuição</button>}
+          </div>
+
+          {/* Observação (nota do contato) */}
+          <div className="border-t border-gray-100 px-5 py-4">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-sm font-semibold text-gray-700">📝 Observação</span>
+              {noteSaved && <span className="text-xs font-medium text-emerald-600">✓ salvo</span>}
+            </div>
+            <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 2000))} onBlur={salvarNota} rows={4} placeholder="Deixe uma nota sobre este contato…" className="w-full resize-none rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-sm outline-none focus:border-amber-400" />
+            <div className="mt-1 text-right text-[11px] text-gray-400">{note.length}/2000 · salva ao sair do campo</div>
           </div>
         </aside>
       )}
