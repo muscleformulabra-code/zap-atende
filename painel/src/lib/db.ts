@@ -432,6 +432,16 @@ export type Stats = {
 
 export type WaitingLead = { contact_id: string; name: string | null; phone: string | null; last_text: string | null; waitingMin: number }
 export type AttendantStat = { atendente: string; respostas: number; tempoRespMin: number | null }
+export type DayPoint = { date: string; novosContatos: number; conversasUnicas: number; abertas: number; encerradas: number }
+export type MemberStat = {
+  name: string
+  respondido: number
+  fechado: number
+  primeiraMedianaSeg: number | null
+  primeiraMediaSeg: number | null
+  fechamentoMedianaSeg: number | null
+  fechamentoMediaSeg: number | null
+}
 export type Analytics = {
   leadsPeriodo: number
   leadsTotal: number
@@ -444,12 +454,14 @@ export type Analytics = {
   taxaResposta: number | null // % de conversas do período que receberam resposta
   waiting: WaitingLead[] // leads aguardando resposta AGORA (mais antigo primeiro)
   ranking: AttendantStat[]
+  series: DayPoint[] // estatísticas por dia (pro gráfico)
+  members: MemberStat[] // estatísticas de chat por membro
 }
 
 // Análise completa por período [fromISO, toISO).
 export async function getAnalytics(fromISO: string, toISO: string): Promise<Analytics> {
   const c = await cid()
-  const [leadsTotal, leadsPeriodo, fechadas, emAtendimento, convsRaw, sessRaw, msgs] = await Promise.all([
+  const [leadsTotal, leadsPeriodo, fechadas, emAtendimento, convsRaw, sessRaw, msgs, contactsCreated, doneInPeriod, membersRows] = await Promise.all([
     count(`contacts?company_id=eq.${c}&select=id`),
     count(`contacts?company_id=eq.${c}&select=id&created_at=gte.${fromISO}&created_at=lt.${toISO}`),
     count(`flow_sessions?company_id=eq.${c}&select=contact_id&status=eq.done&updated_at=gte.${fromISO}&updated_at=lt.${toISO}`),
@@ -458,7 +470,10 @@ export async function getAnalytics(fromISO: string, toISO: string): Promise<Anal
     rest(`conversations?company_id=eq.${c}&select=contact_id,name,phone,last_text,last_sent_at&last_from_me=is.false&order=last_sent_at.asc.nullslast&limit=300`).then((r) => r.json()),
     rest(`flow_sessions?company_id=eq.${c}&select=contact_id,status`).then((r) => r.json()),
     rest(`messages?company_id=eq.${c}&select=from_me,sent_at,contact_id,sent_by&sent_at=gte.${fromISO}&sent_at=lt.${toISO}&order=contact_id,sent_at.asc&limit=20000`).then((r) => r.json()),
-  ]) as [number, number, number, number, { contact_id: string; name: string | null; phone: string | null; last_text: string | null; last_sent_at: string | null }[], { contact_id: string; status: string }[], { from_me: boolean; sent_at: string; contact_id: string; sent_by: string | null }[]]
+    rest(`contacts?company_id=eq.${c}&select=created_at&created_at=gte.${fromISO}&created_at=lt.${toISO}&limit=50000`).then((r) => r.json()),
+    rest(`flow_sessions?company_id=eq.${c}&status=eq.done&updated_at=gte.${fromISO}&updated_at=lt.${toISO}&select=contact_id,assigned_to,updated_at&limit=50000`).then((r) => r.json()),
+    rest(`company_members?company_id=eq.${c}&select=email,name`).then((r) => r.json()).catch(() => []),
+  ]) as [number, number, number, number, { contact_id: string; name: string | null; phone: string | null; last_text: string | null; last_sent_at: string | null }[], { contact_id: string; status: string }[], { from_me: boolean; sent_at: string; contact_id: string; sent_by: string | null }[], { created_at: string }[], { contact_id: string; assigned_to: string | null; updated_at: string }[], { email: string; name: string | null }[]]
 
   // ── Leads AGUARDANDO resposta agora (exclui os concluídos) ──
   const doneSet = new Set(sessRaw.filter((s) => s.status === 'done').map((s) => s.contact_id))
@@ -514,7 +529,58 @@ export async function getAnalytics(fromISO: string, toISO: string): Promise<Anal
     .map((atendente) => ({ atendente, respostas: attCount[atendente], tempoRespMin: avg(attDeltas[atendente] ?? []) }))
     .sort((a, b) => b.respostas - a.respostas)
 
-  return { leadsPeriodo, leadsTotal, emAberto, fechadas, emAtendimento, recebidas, enviadas, tempoMedioRespMin, taxaResposta, waiting, ranking }
+  // ── SÉRIE DIÁRIA (pro gráfico) — buckets por dia no fuso de Brasília (-3h) ──
+  const BR = 3 * 3600 * 1000
+  const dayKey = (iso: string) => new Date(Date.parse(iso) - BR).toISOString().slice(0, 10)
+  const dayKeys: string[] = []
+  {
+    const startDay = dayKey(fromISO)
+    let t = Date.parse(startDay + 'T00:00:00Z') + BR // volta pro UTC do início do dia BR
+    const end = Date.parse(toISO)
+    while (t < end) { dayKeys.push(dayKey(new Date(t).toISOString())); t += 86400000 }
+    if (dayKeys.length === 0) dayKeys.push(startDay)
+  }
+  const novos: Record<string, number> = {}, encerr: Record<string, number> = {}
+  const uniqSets: Record<string, Set<string>> = {}, abertasSets: Record<string, Set<string>> = {}
+  for (const ct of contactsCreated) { const k = dayKey(ct.created_at); novos[k] = (novos[k] || 0) + 1 }
+  for (const m of msgs) { const k = dayKey(m.sent_at); (uniqSets[k] ??= new Set()).add(m.contact_id); if (!m.from_me) (abertasSets[k] ??= new Set()).add(m.contact_id) }
+  for (const s of doneInPeriod) { const k = dayKey(s.updated_at); encerr[k] = (encerr[k] || 0) + 1 }
+  const series: DayPoint[] = dayKeys.map((k) => ({ date: k, novosContatos: novos[k] || 0, conversasUnicas: uniqSets[k]?.size || 0, abertas: abertasSets[k]?.size || 0, encerradas: encerr[k] || 0 }))
+
+  // ── ESTATÍSTICAS POR MEMBRO ──
+  const email2name: Record<string, string> = {}
+  for (const u of membersRows) if (u.email) email2name[u.email.toLowerCase()] = u.name || u.email
+  const nameOf = (sentBy: string | null) => (sentBy ? email2name[sentBy.toLowerCase()] || sentBy.split('@')[0] : '—')
+  type PC = { firstIn: number | null; firstOut: { nm: string; t: number } | null; members: Set<string> }
+  const perContact: Record<string, PC> = {}
+  for (const m of msgs) {
+    const pc = (perContact[m.contact_id] ??= { firstIn: null, firstOut: null, members: new Set() })
+    const t = Date.parse(m.sent_at)
+    if (m.from_me) { const nm = nameOf(m.sent_by); pc.members.add(nm); if (pc.firstOut == null) pc.firstOut = { nm, t } }
+    else if (pc.firstIn == null) pc.firstIn = t
+  }
+  const respondido: Record<string, number> = {}, fechadoM: Record<string, number> = {}
+  const firstResp: Record<string, number[]> = {}, closeT: Record<string, number[]> = {}
+  for (const cId in perContact) {
+    const pc = perContact[cId]
+    for (const nm of pc.members) respondido[nm] = (respondido[nm] || 0) + 1
+    if (pc.firstOut && pc.firstIn != null) { const d = (pc.firstOut.t - pc.firstIn) / 1000; if (d >= 0) (firstResp[pc.firstOut.nm] ??= []).push(d) }
+  }
+  for (const s of doneInPeriod) {
+    const nm = s.assigned_to
+    if (!nm) continue
+    fechadoM[nm] = (fechadoM[nm] || 0) + 1
+    const pc = perContact[s.contact_id]
+    if (pc && pc.firstIn != null) { const d = (Date.parse(s.updated_at) - pc.firstIn) / 1000; if (d >= 0) (closeT[nm] ??= []).push(d) }
+  }
+  const median = (a?: number[]) => { if (!a?.length) return null; const s = [...a].sort((x, y) => x - y); const m = Math.floor(s.length / 2); return s.length % 2 ? Math.round(s[m]) : Math.round((s[m - 1] + s[m]) / 2) }
+  const meanS = (a?: number[]) => (a?.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length) : null)
+  const memberKeys = [...new Set([...Object.keys(respondido), ...Object.keys(fechadoM)])].filter((k) => k !== '—')
+  const members: MemberStat[] = memberKeys
+    .map((nm) => ({ name: nm, respondido: respondido[nm] || 0, fechado: fechadoM[nm] || 0, primeiraMedianaSeg: median(firstResp[nm]), primeiraMediaSeg: meanS(firstResp[nm]), fechamentoMedianaSeg: median(closeT[nm]), fechamentoMediaSeg: meanS(closeT[nm]) }))
+    .sort((a, b) => b.respondido + b.fechado - (a.respondido + a.fechado))
+
+  return { leadsPeriodo, leadsTotal, emAberto, fechadas, emAtendimento, recebidas, enviadas, tempoMedioRespMin, taxaResposta, waiting, ranking, series, members }
 }
 
 export async function getStats(): Promise<Stats> {

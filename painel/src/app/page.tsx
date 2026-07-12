@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react'
 
 type WaitingLead = { contact_id: string; name: string | null; phone: string | null; last_text: string | null; waitingMin: number }
 type AttendantStat = { atendente: string; respostas: number; tempoRespMin: number | null }
+type DayPoint = { date: string; novosContatos: number; conversasUnicas: number; abertas: number; encerradas: number }
+type MemberStat = { name: string; respondido: number; fechado: number; primeiraMedianaSeg: number | null; primeiraMediaSeg: number | null; fechamentoMedianaSeg: number | null; fechamentoMediaSeg: number | null }
 type Analytics = {
   leadsPeriodo: number
   leadsTotal: number
@@ -16,6 +18,55 @@ type Analytics = {
   taxaResposta: number | null
   waiting: WaitingLead[]
   ranking: AttendantStat[]
+  series: DayPoint[]
+  members: MemberStat[]
+}
+
+// "Xh Ym" / "Xm Ys" a partir de segundos.
+function fmtDur(seg: number | null): string {
+  if (seg == null) return '—'
+  const h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60), s = Math.round(seg % 60)
+  if (h) return `${h}h ${m}m`
+  if (m) return `${m}m ${s}s`
+  return `${s}s`
+}
+
+const METRICS: { k: keyof DayPoint; label: string }[] = [
+  { k: 'novosContatos', label: 'Novos contatos' },
+  { k: 'conversasUnicas', label: 'Conversas únicas' },
+  { k: 'abertas', label: 'Conversas abertas' },
+  { k: 'encerradas', label: 'Conversas encerradas' },
+]
+
+// Gráfico de barras simples (SVG) das estatísticas por dia.
+function BarChart({ series, metric }: { series: DayPoint[]; metric: keyof DayPoint }) {
+  if (!series.length) return <div className="py-10 text-center text-sm text-gray-400">Sem dados no período.</div>
+  const vals = series.map((d) => Number(d[metric]) || 0)
+  const max = Math.max(1, ...vals)
+  const W = Math.max(series.length * 46, 300), H = 220, pad = 28
+  const bw = (W - pad) / series.length
+  const showEvery = series.length > 20 ? Math.ceil(series.length / 15) : 1
+  return (
+    <div className="overflow-x-auto">
+      <svg viewBox={`0 0 ${W} ${H}`} className="min-w-full" style={{ minWidth: W }}>
+        {[0, 0.5, 1].map((f) => { const y = pad + (H - pad * 2) * (1 - f); return (<g key={f}><line x1={pad} y1={y} x2={W} y2={y} stroke="#eef1f5" /><text x={0} y={y + 3} fontSize="9" fill="#9ca3af">{Math.round(max * f)}</text></g>) })}
+        {series.map((d, i) => {
+          const v = Number(d[metric]) || 0
+          const bh = (H - pad * 2) * (v / max)
+          const x = pad + i * bw + bw * 0.2
+          const w = bw * 0.6
+          const y = H - pad - bh
+          const lbl = d.date.slice(5).replace('-', '/')
+          return (
+            <g key={d.date}>
+              <rect x={x} y={y} width={w} height={bh} rx={3} fill="#3b82f6"><title>{lbl}: {v}</title></rect>
+              {i % showEvery === 0 && <text x={x + w / 2} y={H - pad + 12} fontSize="9" fill="#9ca3af" textAnchor="middle">{lbl}</text>}
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
 }
 
 type Preset = 'dia' | 'semana' | 'mes' | 'ano' | 'custom'
@@ -76,6 +127,7 @@ export default function Dashboard() {
   const [customTo, setCustomTo] = useState('')
   const [data, setData] = useState<Analytics | null>(null)
   const [loading, setLoading] = useState(true)
+  const [metric, setMetric] = useState<keyof DayPoint>('novosContatos')
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -173,6 +225,59 @@ export default function Dashboard() {
             <Card label="Em atendimento (humano)" value={data.emAtendimento} icon="🙋" tone="indigo" />
             <Card label="Recebidas no período" value={data.recebidas} icon="📥" tone="slate" />
             <Card label="Enviadas no período" value={data.enviadas} icon="📤" tone="violet" />
+          </section>
+
+          {/* ESTATÍSTICAS POR PERÍODO (gráfico) */}
+          <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-bold text-gray-800">📈 Estatísticas por período</h2>
+              <select value={metric} onChange={(e) => setMetric(e.target.value as keyof DayPoint)} className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 outline-none focus:border-emerald-400">
+                {METRICS.map((m) => <option key={m.k} value={m.k}>{m.label}</option>)}
+              </select>
+            </div>
+            <BarChart series={data.series} metric={metric} />
+          </section>
+
+          {/* ESTATÍSTICAS DE CHAT POR MEMBROS */}
+          <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <div className="border-b border-gray-100 px-5 py-4">
+              <h2 className="font-bold text-gray-800">👥 Estatísticas de chat por membros</h2>
+              <p className="text-xs text-gray-400">no período selecionado</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 text-left text-xs font-medium text-gray-400">
+                    <th className="px-4 py-3">Membro da equipe</th>
+                    <th className="px-4 py-3 text-center">Respondido</th>
+                    <th className="px-4 py-3 text-center">Fechado</th>
+                    <th className="px-4 py-3 text-center">Tempo mediano 1ª resp.</th>
+                    <th className="px-4 py-3 text-center">Tempo médio 1ª resp.</th>
+                    <th className="px-4 py-3 text-center">Tempo mediano fech.</th>
+                    <th className="px-4 py-3 text-center">Tempo médio fech.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.members.map((m) => (
+                    <tr key={m.name} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-[10px] font-semibold text-white">{m.name.slice(0, 2).toUpperCase()}</span>
+                          <span className="font-medium text-gray-800">{m.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center font-semibold text-gray-700">{m.respondido}</td>
+                      <td className="px-4 py-3 text-center font-semibold text-gray-700">{m.fechado}</td>
+                      <td className="px-4 py-3 text-center text-gray-500">{fmtDur(m.primeiraMedianaSeg)}</td>
+                      <td className="px-4 py-3 text-center text-gray-500">{fmtDur(m.primeiraMediaSeg)}</td>
+                      <td className="px-4 py-3 text-center text-gray-500">{fmtDur(m.fechamentoMedianaSeg)}</td>
+                      <td className="px-4 py-3 text-center text-gray-500">{fmtDur(m.fechamentoMediaSeg)}</td>
+                    </tr>
+                  ))}
+                  {data.members.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">Sem dados de membros no período.</td></tr>}
+                </tbody>
+              </table>
+            </div>
           </section>
 
           {/* ranking de atendentes com performance */}
