@@ -31,7 +31,8 @@ export default function Assistente() {
     const d = await (await fetch('/api/assistants')).json()
     const list: Assistant[] = d.assistants || []
     setAssistants(list); setModels(d.models || [])
-    setCurId((prev) => selectId || (list.find((a) => a.id === prev)?.id ?? list[0]?.id ?? ''))
+    // NÃO seleciona automático: o atendente precisa escolher o assistente certo.
+    setCurId((prev) => selectId || (list.find((a) => a.id === prev)?.id ?? ''))
   }
   useEffect(() => { load() }, [])
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, loading])
@@ -72,8 +73,8 @@ export default function Assistente() {
           <button onClick={() => setPickOpen((s) => !s)} className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition hover:bg-white/10">
             <span className="flex h-9 w-9 items-center justify-center rounded-lg text-lg" style={{ background: GOLD, color: NAVY }}>💡</span>
             <span className="text-left leading-tight">
-              <span className="block text-[14px] font-bold text-white">{cur?.name || 'Assistente'}</span>
-              <span className="block text-[11px]" style={{ color: GOLD }}>trocar assistente ▾</span>
+              <span className="block text-[14px] font-bold text-white">{cur?.name || 'Selecione o assistente'}</span>
+              <span className="block text-[11px]" style={{ color: GOLD }}>{cur ? 'trocar assistente ▾' : 'escolha para começar ▾'}</span>
             </span>
           </button>
           {pickOpen && (
@@ -101,14 +102,38 @@ export default function Assistente() {
           {mode === 'chat' && messages.length > 0 && (
             <button onClick={() => setMessages([])} className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-medium text-white/80 transition hover:bg-white/10">＋ Nova conversa</button>
           )}
-          <button onClick={() => setMode((m) => (m === 'chat' ? 'config' : 'chat'))} className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-medium text-white/90 transition hover:bg-white/10">
-            {mode === 'chat' ? '⚙️ Configurar' : '← Voltar ao chat'}
-          </button>
+          {cur && (
+            <button onClick={() => setMode((m) => (m === 'chat' ? 'config' : 'chat'))} className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-medium text-white/90 transition hover:bg-white/10">
+              {mode === 'chat' ? '⚙️ Configurar' : '← Voltar ao chat'}
+            </button>
+          )}
         </div>
       </div>
 
       {mode === 'config' && cur ? (
         <ConfigForm key={cur.id} assistant={cur} models={models} onSaved={() => load(cur.id).then(() => setMode('chat'))} onDeleted={() => load()} onChanged={() => load(cur.id)} />
+      ) : !cur ? (
+        <div className="flex flex-1 items-center justify-center bg-[#f7f8fb] px-4 py-8">
+          <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 text-center shadow-sm">
+            <span className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl text-2xl" style={{ background: NAVY, color: GOLD }}>💡</span>
+            <h2 className="text-lg font-bold" style={{ color: NAVY }}>Escolha o assistente</h2>
+            <p className="mt-2 text-sm text-gray-500">Selecione o assistente certo antes de começar — cada clínica tem o seu.</p>
+            <div className="mt-5 space-y-2 text-left">
+              {assistants.map((a) => (
+                <button key={a.id} onClick={() => { setCurId(a.id); setMessages([]) }} className="flex w-full items-center gap-3 rounded-xl border border-gray-200 px-4 py-3 transition hover:border-[#C9A96E] hover:bg-amber-50/40">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white" style={{ background: NAVY }}>💡</span>
+                  <span className="min-w-0 flex-1 leading-tight">
+                    <span className="block truncate text-sm font-semibold text-gray-800">{a.name}</span>
+                    {a.description && <span className="block truncate text-xs text-gray-400">{a.description}</span>}
+                  </span>
+                  <span className="text-gray-300">→</span>
+                </button>
+              ))}
+              {assistants.length === 0 && <div className="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-400">Nenhum assistente ainda.</div>}
+            </div>
+            <button onClick={novoAssistente} className="mt-4 w-full rounded-xl py-2.5 text-sm font-semibold text-white" style={{ background: NAVY }}>＋ Novo assistente</button>
+          </div>
+        </div>
       ) : (
         <>
           <div className="flex-1 overflow-y-auto bg-[#f7f8fb] px-4 py-6 sm:px-8">
