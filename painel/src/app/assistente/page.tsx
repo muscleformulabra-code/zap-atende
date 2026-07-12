@@ -225,18 +225,22 @@ function ConfigForm({ assistant, models, onSaved, onDeleted, onChanged }: { assi
     onDeleted()
   }
 
-  async function subirArquivo(file: File) {
+  async function subirArquivos(files: FileList) {
     setUploading(true); setMsg('')
+    const warns: string[] = []
     try {
-      const fd = new FormData()
-      fd.append('file', file); fd.append('assistantId', f.id)
-      const r = await fetch('/api/assistant-files', { method: 'POST', body: fd })
-      const d = await r.json()
-      if (!r.ok) throw new Error(d.error || 'falha no upload')
-      up({ files: d.files })
-      if (d.warn) setMsg('⚠️ ' + d.warn)
+      for (const file of Array.from(files)) {
+        const fd = new FormData()
+        fd.append('file', file); fd.append('assistantId', f.id)
+        const r = await fetch('/api/assistant-files', { method: 'POST', body: fd })
+        const d = await r.json()
+        if (!r.ok) { warns.push(`${file.name}: ${d.error || 'falha'}`); continue }
+        up({ files: d.files })
+        if (d.warn) warns.push(`${file.name}: sem texto (imagem)`)
+      }
+      if (warns.length) setMsg('⚠️ ' + warns.join(' · '))
       onChanged()
-    } catch (e) { setMsg('❌ ' + (e as Error).message) } finally { setUploading(false) }
+    } finally { setUploading(false) }
   }
 
   async function removerArquivo(i: number) {
@@ -272,22 +276,18 @@ function ConfigForm({ assistant, models, onSaved, onDeleted, onChanged }: { assi
                 <button onClick={() => removerArquivo(i)} className="text-gray-400 hover:text-red-500">✕</button>
               </div>
             ))}
-            <input ref={fileRef} type="file" accept=".pdf,.txt,.csv,.md,text/*,application/pdf" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) subirArquivo(file); e.target.value = '' }} />
+            <input ref={fileRef} type="file" multiple accept=".pdf,.txt,.csv,.md,text/*,application/pdf" className="hidden" onChange={(e) => { const fs = e.target.files; if (fs?.length) subirArquivos(fs); e.target.value = '' }} />
             <button onClick={() => fileRef.current?.click()} disabled={uploading} className="rounded-lg border border-dashed border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50">
-              {uploading ? 'enviando…' : '＋ Carregar arquivo'}
+              {uploading ? 'enviando…' : '＋ Carregar arquivos'}
             </button>
           </div>
         </Field>
 
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field label="Modelo GPT" hint="Escolha ou digite outro.">
-            <input list="models" value={f.model} onChange={(e) => up({ model: e.target.value })} className="w-full rounded-lg border border-gray-300 p-2.5 text-sm outline-none focus:border-[#1B2B4B]" />
-            <datalist id="models">{models.map((m) => <option key={m} value={m} />)}</datalist>
-          </Field>
-          <Field label={`Temperatura: ${f.temperature.toFixed(1)}`} hint="0 = objetivo · 1 = criativo">
-            <input type="range" min={0} max={1} step={0.1} value={f.temperature} onChange={(e) => up({ temperature: Number(e.target.value) })} className="w-full accent-[#1B2B4B]" />
-          </Field>
-        </div>
+        <Field label="Modelo GPT" hint="Qual modelo da OpenAI usar.">
+          <select value={f.model} onChange={(e) => up({ model: e.target.value })} className="w-full rounded-lg border border-gray-300 bg-white p-2.5 text-sm outline-none focus:border-[#1B2B4B]">
+            {(models.includes(f.model) ? models : [f.model, ...models]).map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </Field>
 
         <Field label="Quebra-gelos" hint="Exemplos que aparecem na tela vazia.">
           <div className="space-y-2">
