@@ -13,7 +13,7 @@ type Conversa = {
   last_sent_at: string | null
   status: string
 }
-type Msg = { id: string; from_me: boolean; text: string | null; sent_at: string | null; media_url?: string | null; media_type?: string | null }
+type Msg = { id: string; from_me: boolean; text: string | null; sent_at: string | null; media_url?: string | null; media_type?: string | null; wa_message_id?: string | null }
 type Card = { id: string; name: string | null; phone: string | null; jid: string; avatar_url: string | null; created_at: string; status: string; assigned_to: string | null; note: string | null }
 type Attendant = { id: string; email: string; name: string | null }
 type FlowItem = { id: string; name: string; is_active?: boolean }
@@ -226,27 +226,37 @@ export default function Inbox() {
   }
 
   async function anexar(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
+    const files = Array.from(e.target.files || [])
     setPlusOpen(false)
-    if (!file || !sel) return
-    if (file.size > 15 * 1024 * 1024) { alert('Arquivo muito grande (máx. 15 MB).'); return }
-    const kind = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'document'
-    const dataUrl: string = await new Promise((res, rej) => {
-      const rd = new FileReader()
-      rd.onload = () => res(rd.result as string)
-      rd.onerror = rej
-      rd.readAsDataURL(file)
-    })
-    setMsgs((m) => [...m, { id: 'tmp' + Date.now(), from_me: true, text: `📎 ${file.name}`, sent_at: new Date().toISOString() }])
-    const r = await fetch('/api/send-media', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contactId: sel.contact_id, kind, dataUrl, fileName: file.name }),
-    })
-    const d = await r.json()
-    if (d.warn) alert('⚠️ ' + d.warn)
     if (fileRef.current) fileRef.current.value = ''
+    if (!files.length || !sel) return
+    // Envia VÁRIOS arquivos, um por um (na ordem escolhida).
+    for (const file of files) {
+      if (file.size > 15 * 1024 * 1024) { alert(`"${file.name}" é muito grande (máx. 15 MB).`); continue }
+      const kind = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'document'
+      const dataUrl: string = await new Promise((res, rej) => {
+        const rd = new FileReader()
+        rd.onload = () => res(rd.result as string)
+        rd.onerror = rej
+        rd.readAsDataURL(file)
+      })
+      setMsgs((m) => [...m, { id: 'tmp' + Date.now() + file.name, from_me: true, text: `📎 ${file.name}`, sent_at: new Date().toISOString() }])
+      const r = await fetch('/api/send-media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactId: sel.contact_id, kind, dataUrl, fileName: file.name }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (d.warn) alert('⚠️ ' + d.warn)
+    }
     loadMsgs(sel.contact_id)
+  }
+
+  async function apagarMsg(m: Msg) {
+    if (!m.from_me) return
+    if (!confirm('Apagar esta mensagem? Ela some pra você e pro paciente.')) return
+    setMsgs((list) => list.filter((x) => x.id !== m.id)) // some na hora
+    await fetch('/api/delete-message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id }) }).catch(() => {})
   }
 
   function inserirEmoji(e: string) {
@@ -329,7 +339,10 @@ export default function Inbox() {
                 const hasMedia = !!m.media_url
                 const caption = m.text && !/^\[.*\]$/.test(m.text.trim()) ? m.text : null // ignora rótulos "[imagem]"
                 return (
-                  <div key={m.id} className={`max-w-[70%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm shadow-sm ${m.from_me ? 'self-end rounded-tr-sm bg-[#dcf8c6] text-gray-800' : 'self-start rounded-tl-sm bg-white text-gray-800'}`}>
+                  <div key={m.id} className={`group relative max-w-[70%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm shadow-sm ${m.from_me ? 'self-end rounded-tr-sm bg-[#dcf8c6] text-gray-800' : 'self-start rounded-tl-sm bg-white text-gray-800'}`}>
+                    {m.from_me && !String(m.id).startsWith('tmp') && (
+                      <button onClick={() => apagarMsg(m)} title="Apagar mensagem" className="absolute -left-7 top-1/2 -translate-y-1/2 rounded-full p-1 text-gray-300 opacity-0 transition group-hover:opacity-100 hover:text-red-500">🗑</button>
+                    )}
                     {hasMedia ? (
                       <>
                         {m.media_type === 'image' && (
@@ -353,7 +366,7 @@ export default function Inbox() {
 
             {/* BARRA DE ENVIO */}
             <div className="relative border-t border-gray-200 bg-white p-3">
-              <input ref={fileRef} type="file" accept="image/*,video/*,application/pdf" onChange={anexar} className="hidden" />
+              <input ref={fileRef} type="file" multiple accept="image/*,video/*,application/pdf" onChange={anexar} className="hidden" />
 
               {/* respostas rápidas (/atalho) */}
               {qrMatches.length > 0 && (

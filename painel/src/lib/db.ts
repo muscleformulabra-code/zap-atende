@@ -74,22 +74,31 @@ export type Message = {
   sent_at: string | null
   media_url?: string | null
   media_type?: string | null
+  wa_message_id?: string | null
 }
 
 export async function getMessages(contactId: string): Promise<Message[]> {
   const c = await cid()
   try {
     const res = await rest(
-      `messages?company_id=eq.${c}&contact_id=eq.${contactId}&select=id,from_me,text,sent_at,media_url,media_type&order=sent_at.asc&limit=300`
+      `messages?company_id=eq.${c}&contact_id=eq.${contactId}&select=id,from_me,text,sent_at,media_url,media_type,wa_message_id&order=sent_at.asc&limit=300`
     )
     return res.json()
   } catch {
     // Colunas de mídia ainda não migradas → busca sem elas.
     const res = await rest(
-      `messages?company_id=eq.${c}&contact_id=eq.${contactId}&select=id,from_me,text,sent_at&order=sent_at.asc&limit=300`
+      `messages?company_id=eq.${c}&contact_id=eq.${contactId}&select=id,from_me,text,sent_at,wa_message_id&order=sent_at.asc&limit=300`
     )
     return res.json()
   }
+}
+
+// Apaga a linha da mensagem no nosso banco (após apagar no WhatsApp).
+export async function deleteMessageRow(messageId: string): Promise<{ jid: string; wa_message_id: string | null } | null> {
+  const c = await cid()
+  const rows = await (await rest(`messages?id=eq.${messageId}&company_id=eq.${c}&select=jid,wa_message_id`)).json()
+  await rest(`messages?id=eq.${messageId}&company_id=eq.${c}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } })
+  return rows[0] ?? null
 }
 
 export async function getContactJid(contactId: string): Promise<string | null> {
