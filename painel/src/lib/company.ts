@@ -70,6 +70,18 @@ export async function currentCompanyId(): Promise<string | null> {
   return (await membershipByEmail(email))?.company_id ?? null
 }
 
+// Renomeia a empresa (fonte de verdade do nome exibido no seletor/sidebar).
+export async function renameCompany(id: string, name: string): Promise<void> {
+  const nome = (name || '').trim()
+  if (!id || !nome) return
+  await fetch(`${REST}/companies?id=eq.${id}`, {
+    method: 'PATCH',
+    headers: { ...H, Prefer: 'return=minimal' },
+    body: JSON.stringify({ name: nome }),
+    cache: 'no-store',
+  })
+}
+
 // Dados de uma empresa.
 export async function getCompany(id: string): Promise<Company | null> {
   const r = await fetch(`${REST}/companies?id=eq.${id}&select=*&limit=1`, { headers: H, cache: 'no-store' })

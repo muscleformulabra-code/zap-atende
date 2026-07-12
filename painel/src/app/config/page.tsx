@@ -72,7 +72,7 @@ export default function Config() {
         {/* CONTEÚDO */}
         <div className="min-w-0 flex-1">
           {tab === 'conexao' ? (
-            <div><Head title="Conexão" /><WhatsAppConnection /></div>
+            <div><Head title="Conexão" /><WhatsAppConnection companyName={s?.company_name} /></div>
           ) : tab === 'fluxos' ? (
             <div><Head title="Fluxos Padrões" /><FlowDefaultsPanel /></div>
           ) : tab === 'etiquetas' ? (
@@ -180,16 +180,25 @@ function DangerZone() {
   )
 }
 
+// Formata o número do WhatsApp (556130463356 → +55 61 3046-3356).
+function fmtPhone(raw: string): string {
+  const n = String(raw).replace(/\D/g, '')
+  const m = n.match(/^55(\d{2})(\d{4,5})(\d{4})$/)
+  if (m) return `+55 ${m[1]} ${m[2]}-${m[3]}`
+  return '+' + n
+}
+
 // ── Seção: Conexão do WhatsApp (QR code que se renova sozinho + status ao vivo) ──
-function WhatsAppConnection() {
+function WhatsAppConnection({ companyName }: { companyName?: string }) {
   const [wa, setWa] = useState<boolean | null>(null)
+  const [me, setMe] = useState<string | null>(null)
   const [qrTick, setQrTick] = useState(0)
   const [hasQr, setHasQr] = useState(false)
   const [resetting, setResetting] = useState(false)
 
   useEffect(() => {
     let alive = true
-    const poll = () => fetch('/api/status').then((r) => r.json()).then((d) => { if (alive) setWa(!!d.whatsapp) }).catch(() => alive && setWa(false))
+    const poll = () => fetch('/api/status').then((r) => r.json()).then((d) => { if (alive) { setWa(!!d.whatsapp); setMe(d.me ?? null) } }).catch(() => alive && setWa(false))
     poll()
     const t = setInterval(poll, 4000)
     return () => { alive = false; clearInterval(t) }
@@ -221,7 +230,13 @@ function WhatsAppConnection() {
           </span>
           <div>
             <div className="font-semibold text-gray-800">{wa ? 'Automação está ligada' : 'Conexão do WhatsApp'}</div>
-            <div className={`text-xs font-medium ${wa ? 'text-emerald-600' : wa === false ? 'text-red-500' : 'text-gray-400'}`}>{label}</div>
+            {wa && me ? (
+              <div className="text-xs font-medium text-gray-600">
+                O número de WhatsApp <span className="font-bold text-emerald-600">{fmtPhone(me)}</span> está conectado{companyName ? <> à <span className="font-semibold text-gray-700">{companyName}</span></> : ''}
+              </div>
+            ) : (
+              <div className={`text-xs font-medium ${wa ? 'text-emerald-600' : wa === false ? 'text-red-500' : 'text-gray-400'}`}>{label}</div>
+            )}
           </div>
         </div>
         {wa === false && (

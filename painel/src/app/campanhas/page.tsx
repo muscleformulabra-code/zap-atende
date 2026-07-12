@@ -9,6 +9,7 @@ export default function Campanhas() {
   const [items, setItems] = useState<Campaign[]>([])
   const [flows, setFlows] = useState<Flow[]>([])
   const [phone, setPhone] = useState<string | null>(null)
+  const [waOn, setWaOn] = useState<boolean>(false)
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<null | Campaign | 'new'>(null)
@@ -25,6 +26,7 @@ export default function Campanhas() {
     setItems(Array.isArray(c) ? c : [])
     setFlows(Array.isArray(f) ? f.map((x: Flow) => ({ id: x.id, name: x.name })) : [])
     setPhone(s?.me ?? null)
+    setWaOn(!!s?.whatsapp)
     setLoading(false)
   }, [])
   useEffect(() => { load() }, [load])
@@ -58,7 +60,11 @@ export default function Campanhas() {
       </header>
 
       {!phone && !loading && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">⚠️ WhatsApp não conectado — os links só são gerados com o número conectado (Config → Conexão).</div>
+        waOn ? (
+          <div className="mb-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">🔄 WhatsApp conectado — buscando o número da conexão. Se o link não aparecer, aguarde alguns segundos e recarregue.</div>
+        ) : (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">⚠️ WhatsApp não conectado — conecte em Config → Conexão para gerar os links.</div>
+        )
       )}
 
       <div className="mb-3 flex items-center justify-between">
