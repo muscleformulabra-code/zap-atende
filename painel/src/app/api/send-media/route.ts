@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { getContactJid, setHandoff } from '@/lib/db'
+import { currentCompanyId } from '@/lib/company'
 
 const CONNECTOR_URL = process.env.CONNECTOR_URL || 'https://zap-atende-production.up.railway.app'
 
@@ -14,13 +15,14 @@ export async function POST(req: Request) {
   if (!jid) return NextResponse.json({ error: 'contato não encontrado' }, { status: 404 })
 
   const sentBy = (await cookies()).get('za_email')?.value || null
+  const company = await currentCompanyId()
   await setHandoff(contactId).catch(() => {})
 
   try {
     const r = await fetch(`${CONNECTOR_URL}/send-media`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to: jid, kind, dataUrl, fileName, caption, sentBy, contactId }),
+      body: JSON.stringify({ to: jid, kind, dataUrl, fileName, caption, sentBy, contactId, company }),
     })
     if (!r.ok) {
       const e = await r.json().catch(() => ({}))

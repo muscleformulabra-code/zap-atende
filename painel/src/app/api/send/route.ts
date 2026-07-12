@@ -22,9 +22,9 @@ export async function POST(req: Request) {
   // Prefixa com o nome do atendente (ex.: "*Isabella Martins:*\nmensagem") pra
   // o paciente saber com quem está falando — igual BotConversa. Usa o nome do
   // PERFIL (membership); se não tiver, cai no metadata/derivado do e-mail.
-  const name = sentBy
-    ? (await membershipByEmail(sentBy).catch(() => null))?.name || (await getUserName(sentBy).catch(() => null))
-    : null
+  const membership = sentBy ? await membershipByEmail(sentBy).catch(() => null) : null
+  const name = membership?.name || (sentBy ? await getUserName(sentBy).catch(() => null) : null)
+  const company = membership?.company_id ?? null // empresa do atendente → sessão certa
   const outgoing = name ? `*${name}:*\n${text}` : text
 
   // Atendente assumiu → bot para de responder esse contato.
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
     const r = await fetch(`${CONNECTOR_URL}/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to: jid, text: outgoing, sentBy, contactId }),
+      body: JSON.stringify({ to: jid, text: outgoing, sentBy, contactId, company }),
     })
     if (!r.ok) {
       const e = await r.json().catch(() => ({}))

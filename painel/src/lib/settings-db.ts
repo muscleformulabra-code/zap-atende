@@ -32,8 +32,8 @@ export type Settings = {
   media_flow_id: string | null   // fluxo padrão para mídia
 }
 
-export async function getSettings(): Promise<Settings> {
-  const c = await cid()
+export async function getSettings(companyId?: string): Promise<Settings> {
+  const c = await cid(companyId)
   const res = await fetch(`${REST}/settings?company_id=eq.${c}&select=*&limit=1`, { headers: H, cache: 'no-store' })
   if (!res.ok) throw new Error(`getSettings ${res.status}: ${await res.text()}`)
   const rows = await res.json()

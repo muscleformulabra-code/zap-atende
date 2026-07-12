@@ -9,8 +9,9 @@ export async function POST(req: Request) {
   const state: SessionState | null = body?.state ?? null
   const input: string = body?.input ?? ''
   const startFlowId: string | null = body?.startFlowId ?? null
+  const company: string | undefined = body?.company ?? undefined // conector passa a empresa
 
-  const { flows, entryId } = await getFlowsBundle()
+  const { flows, entryId } = await getFlowsBundle(company)
   // startFlowId = dispara um fluxo específico (resposta padrão / mídia).
   // Sem ele: avança a sessão, ou começa pelo fluxo de entrada (boas-vindas).
   const result = state

@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { getContactJid, setFlowSession } from '@/lib/db'
 import { getFlowsBundle } from '@/lib/flow-db'
 import { startSession } from '@/lib/flow-engine'
+import { currentCompanyId } from '@/lib/company'
 
 const CONNECTOR_URL = process.env.CONNECTOR_URL || 'https://zap-atende-production.up.railway.app'
 
@@ -21,6 +22,7 @@ export async function POST(req: Request) {
 
   const { replies, state } = startSession(flows, flowId)
   const sentBy = (await cookies()).get('za_email')?.value || null
+  const company = await currentCompanyId()
 
   // Grava a posição já (mesmo se a automação parar num menu/handoff).
   await setFlowSession(contactId, { flowId: state.flowId, currentNode: state.currentNode, status: state.status }).catch(() => {})
@@ -33,7 +35,7 @@ export async function POST(req: Request) {
       const res = await fetch(`${CONNECTOR_URL}/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: jid, text: r.image ? `${text}\n${r.image}`.trim() : text, sentBy, contactId }),
+        body: JSON.stringify({ to: jid, text: r.image ? `${text}\n${r.image}`.trim() : text, sentBy, contactId, company }),
       })
       if (!res.ok) { warn = 'conector recusou o envio'; break }
     } catch {

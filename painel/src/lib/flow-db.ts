@@ -39,8 +39,8 @@ async function req(path: string, init: RequestInit = {}): Promise<Response> {
 }
 
 // Lista todos os fluxos da empresa. Na 1ª vez, cria o fluxo padrão (ativo).
-export async function listFlows(): Promise<FlowRow[]> {
-  const c = await cid()
+export async function listFlows(companyId?: string): Promise<FlowRow[]> {
+  const c = await cid(companyId)
   const rows: FlowRow[] = await (await req(`flows?company_id=eq.${c}&select=*&order=updated_at.desc`)).json()
   if (rows.length > 0) return rows
   const created: FlowRow[] = await (
@@ -111,8 +111,8 @@ export async function setActiveFlow(id: string): Promise<void> {
 }
 
 // Pacote para o simulador/motor: todos os fluxos (mapa) + qual é a entrada.
-export async function getFlowsBundle(): Promise<{ flows: Flows; entryId: string }> {
-  const rows = await listFlows()
+export async function getFlowsBundle(companyId?: string): Promise<{ flows: Flows; entryId: string }> {
+  const rows = await listFlows(companyId)
   const flows: Flows = {}
   for (const r of rows) flows[r.id] = graphToFlow(r.definition)
   const entry = rows.find((r) => r.is_active) ?? rows[0]
