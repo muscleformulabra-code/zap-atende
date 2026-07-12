@@ -88,8 +88,9 @@ export default function Sidebar() {
   return (
     <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-gray-200/80 bg-white">
       {/* LOGO */}
-      <div className="flex items-center gap-3 px-5 pb-4 pt-5">
-        <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-500 text-xl text-white shadow-lg shadow-emerald-200/70">💬</span>
+      <div className="flex items-center gap-2.5 px-5 pb-4 pt-5">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/ricco-icon.png" alt="Ricco Chat" className="h-11 w-11 shrink-0 object-contain" />
         <div className="leading-tight">
           <span className="block text-[17px] font-extrabold tracking-tight text-gray-900">Ricco Chat</span>
           <span className="block text-[11px] font-medium text-gray-400">Atendimento inteligente</span>
