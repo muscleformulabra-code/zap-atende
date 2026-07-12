@@ -1,13 +1,15 @@
 import { NextResponse } from 'next/server'
-import { getOpenAIKey, getAssistantConfigRaw } from '@/lib/settings-db'
-import { normalizeAssistantConfig, buildSystemPrompt } from '@/lib/assistant'
+import { getOpenAIKey } from '@/lib/settings-db'
+import { getAssistant, listAssistants } from '@/lib/assistants-db'
+import { buildSystemPrompt } from '@/lib/assistant'
 
 type ChatMsg = { role: 'user' | 'assistant'; content: string }
 
 // Proxy seguro pra OpenAI: o navegador nunca vê a chave. Recebe as mensagens
-// da conversa, injeta o system prompt e devolve a sugestão de resposta.
+// da conversa + o id do assistente, injeta as instruções/conhecimento dele e
+// devolve a sugestão de resposta.
 export async function POST(req: Request) {
-  const { messages } = (await req.json().catch(() => ({}))) as { messages?: ChatMsg[] }
+  const { messages, assistantId } = (await req.json().catch(() => ({}))) as { messages?: ChatMsg[]; assistantId?: string }
   if (!Array.isArray(messages) || messages.length === 0) {
     return NextResponse.json({ error: 'Sem mensagens' }, { status: 400 })
   }
@@ -17,10 +19,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'A chave da OpenAI ainda não foi configurada. Vá em Configurações → Integrações e cole sua chave (sk-...).' }, { status: 400 })
   }
 
-  // Config editável na tela (nome, instruções, modelo, temperatura, contexto).
-  const cfg = normalizeAssistantConfig(await getAssistantConfigRaw())
+  // Assistente escolhido (ou o primeiro da empresa).
+  const a = assistantId ? await getAssistant(assistantId) : (await listAssistants())[0]
+  if (!a) return NextResponse.json({ error: 'Nenhum assistente configurado.' }, { status: 400 })
 
-  // Só as últimas ~20 mensagens (contexto suficiente, custo controlado).
   const convo = messages
     .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content?.trim())
     .slice(-20)
@@ -31,18 +33,14 @@ export async function POST(req: Request) {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: cfg.model,
-        temperature: cfg.temperature,
-        messages: [{ role: 'system', content: buildSystemPrompt(cfg) }, ...convo],
+        model: a.model,
+        temperature: a.temperature,
+        messages: [{ role: 'system', content: buildSystemPrompt(a) }, ...convo],
       }),
     })
     const d = await r.json().catch(() => ({}))
-    if (!r.ok) {
-      const msg = d?.error?.message || `OpenAI erro ${r.status}`
-      return NextResponse.json({ error: msg }, { status: 502 })
-    }
-    const reply = d?.choices?.[0]?.message?.content?.trim() || ''
-    return NextResponse.json({ reply })
+    if (!r.ok) return NextResponse.json({ error: d?.error?.message || `OpenAI erro ${r.status}` }, { status: 502 })
+    return NextResponse.json({ reply: d?.choices?.[0]?.message?.content?.trim() || '' })
   } catch (e) {
     return NextResponse.json({ error: 'Falha ao falar com a OpenAI: ' + (e as Error).message }, { status: 502 })
   }

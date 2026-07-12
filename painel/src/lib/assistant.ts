@@ -1,27 +1,30 @@
 // ─────────────────────────────────────────────────────────────
-//  ASSISTENTE DE LEADS — configuração
-//  Ferramenta de APOIO ao atendente humano: ele cola a mensagem do paciente e
-//  a IA sugere uma resposta pronta pra copiar. NÃO responde o paciente sozinho.
-//
-//  A configuração (nome, instruções, modelo, etc.) é EDITÁVEL NA TELA
-//  (Assistente → ⚙️ Configurar) e guardada por empresa. Os valores abaixo são
-//  só os PADRÕES iniciais.
+//  ASSISTENTES DE LEADS — tipos e helpers
+//  Cada empresa pode ter VÁRIOS assistentes (Ricco Odontologia, Slim Station…),
+//  cada um com nome, descrição, instruções, contexto, modelo, quebra-gelos e
+//  conhecimento (texto extraído de arquivos). Tudo editável na tela.
 // ─────────────────────────────────────────────────────────────
 
-export type AssistantConfig = {
+export type AssistantFile = { name: string; url: string; chars: number }
+
+export type Assistant = {
+  id: string
   name: string
-  instructions: string // o "cérebro" — system prompt
-  context: string // conhecimento extra (preços, endereço, horários…) — anexado ao prompt
+  description: string
+  instructions: string // system prompt (o "cérebro")
+  context: string // conhecimento extra digitado
   model: string
   temperature: number
-  starters: string[] // quebra-gelos (exemplos que aparecem na tela vazia)
+  starters: string[] // quebra-gelos
+  knowledge: string // texto extraído dos arquivos (injetado no prompt)
+  files: AssistantFile[] // metadados dos arquivos enviados
 }
 
-// Modelos sugeridos no seletor (é só um datalist — dá pra digitar outro).
+// Modelos sugeridos no seletor (datalist — dá pra digitar outro).
 export const ASSISTANT_MODELS = ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1', 'o4-mini', 'o3-mini']
 
-// SYSTEM PROMPT padrão (o usuário pode reescrever tudo pela tela).
-export const SYSTEM_PROMPT = `Você é o assistente da Central de Leads da clínica (Centro Médico da Família / Ricco Odontologia), em Taguatinga-DF. Sua função é AJUDAR O ATENDENTE HUMANO: a partir da mensagem que o paciente enviou no WhatsApp, você escreve uma resposta pronta, no tom da clínica, para o atendente copiar e colar.
+// Instruções padrão (o usuário reescreve pela tela).
+export const DEFAULT_INSTRUCTIONS = `Você é o assistente da Central de Leads da clínica, em Taguatinga-DF. Sua função é AJUDAR O ATENDENTE HUMANO: a partir da mensagem que o paciente enviou no WhatsApp, você escreve uma resposta pronta, no tom da clínica, para o atendente copiar e colar.
 
 DIRETRIZES:
 - Tom acolhedor, humano e profissional. Trate o paciente por "você". No máximo 1 ou 2 emojis.
@@ -33,36 +36,44 @@ DIRETRIZES:
 
 FORMATO: devolva APENAS o texto pronto pra enviar ao paciente (sem aspas, sem "resposta sugerida:", sem explicações).`
 
-// Configuração PADRÃO (usada quando a empresa ainda não configurou).
-export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
-  name: 'Assistente de Leads',
-  instructions: SYSTEM_PROMPT,
-  context: '',
-  model: 'gpt-4o-mini',
-  temperature: 0.4,
-  starters: [
-    'Oi, quanto custa uma limpeza?',
-    'Vocês aceitam convênio?',
-    'Quero avaliar meu sorriso',
-    'Estou com dor de dente, o que faço?',
-  ],
-}
-
-// Monta o system prompt final (instruções + contexto extra, se houver).
-export function buildSystemPrompt(c: AssistantConfig): string {
-  const ctx = (c.context || '').trim()
-  return ctx ? `${c.instructions}\n\n─── CONTEXTO DA CLÍNICA (use como base) ───\n${ctx}` : c.instructions
-}
-
-// Normaliza um objeto vindo do banco (preenche defaults).
-export function normalizeAssistantConfig(raw?: Partial<AssistantConfig> | null): AssistantConfig {
-  const d = DEFAULT_ASSISTANT_CONFIG
+// Valores padrão de um assistente novo.
+export function defaultAssistant(): Omit<Assistant, 'id'> {
   return {
-    name: (raw?.name ?? d.name) || d.name,
-    instructions: (raw?.instructions ?? d.instructions) || d.instructions,
-    context: raw?.context ?? d.context,
-    model: (raw?.model ?? d.model) || d.model,
-    temperature: typeof raw?.temperature === 'number' ? raw.temperature : d.temperature,
-    starters: Array.isArray(raw?.starters) ? raw!.starters!.filter((s) => s && s.trim()) : d.starters,
+    name: 'Novo assistente',
+    description: '',
+    instructions: DEFAULT_INSTRUCTIONS,
+    context: '',
+    model: 'gpt-4o-mini',
+    temperature: 0.4,
+    starters: ['Oi, quanto custa?', 'Vocês aceitam convênio?', 'Quero agendar uma avaliação'],
+    knowledge: '',
+    files: [],
+  }
+}
+
+// Monta o system prompt final (instruções + contexto + conhecimento dos arquivos).
+export function buildSystemPrompt(a: Pick<Assistant, 'instructions' | 'context' | 'knowledge'>): string {
+  let p = a.instructions || ''
+  const ctx = (a.context || '').trim()
+  if (ctx) p += `\n\n─── CONTEXTO DA CLÍNICA ───\n${ctx}`
+  const kn = (a.knowledge || '').trim()
+  if (kn) p += `\n\n─── BASE DE CONHECIMENTO (arquivos) ───\n${kn}`
+  return p
+}
+
+// Normaliza um registro do banco (preenche defaults e tipos).
+export function normalizeAssistant(raw: Record<string, unknown>): Assistant {
+  const d = defaultAssistant()
+  return {
+    id: String(raw.id),
+    name: (raw.name as string) || d.name,
+    description: (raw.description as string) || '',
+    instructions: (raw.instructions as string) || d.instructions,
+    context: (raw.context as string) || '',
+    model: (raw.model as string) || d.model,
+    temperature: typeof raw.temperature === 'number' ? (raw.temperature as number) : d.temperature,
+    starters: Array.isArray(raw.starters) ? (raw.starters as string[]).filter((s) => s && s.trim()) : d.starters,
+    knowledge: (raw.knowledge as string) || '',
+    files: Array.isArray(raw.files) ? (raw.files as AssistantFile[]) : [],
   }
 }
