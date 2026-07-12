@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getOpenAIKey } from '@/lib/settings-db'
-import { ASSISTANT_MODEL, ASSISTANT_TEMPERATURE, SYSTEM_PROMPT } from '@/lib/assistant'
+import { getOpenAIKey, getAssistantConfigRaw } from '@/lib/settings-db'
+import { normalizeAssistantConfig, buildSystemPrompt } from '@/lib/assistant'
 
 type ChatMsg = { role: 'user' | 'assistant'; content: string }
 
@@ -17,6 +17,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'A chave da OpenAI ainda não foi configurada. Vá em Configurações → Integrações e cole sua chave (sk-...).' }, { status: 400 })
   }
 
+  // Config editável na tela (nome, instruções, modelo, temperatura, contexto).
+  const cfg = normalizeAssistantConfig(await getAssistantConfigRaw())
+
   // Só as últimas ~20 mensagens (contexto suficiente, custo controlado).
   const convo = messages
     .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content?.trim())
@@ -28,9 +31,9 @@ export async function POST(req: Request) {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: ASSISTANT_MODEL,
-        temperature: ASSISTANT_TEMPERATURE,
-        messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...convo],
+        model: cfg.model,
+        temperature: cfg.temperature,
+        messages: [{ role: 'system', content: buildSystemPrompt(cfg) }, ...convo],
       }),
     })
     const d = await r.json().catch(() => ({}))

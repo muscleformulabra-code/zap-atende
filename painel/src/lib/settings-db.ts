@@ -66,6 +66,28 @@ export async function getOpenAIKey(companyId?: string): Promise<string | null> {
   return process.env.OPENAI_API_KEY?.trim() || null
 }
 
+// ── Config do Assistente (nome, instruções, modelo…) por empresa ──
+export async function getAssistantConfigRaw(companyId?: string): Promise<Record<string, unknown> | null> {
+  const c = await cid(companyId)
+  try {
+    const res = await fetch(`${REST}/settings?company_id=eq.${c}&select=assistant_config&limit=1`, { headers: H, cache: 'no-store' })
+    if (res.ok) return (await res.json())[0]?.assistant_config ?? null
+  } catch {
+    /* coluna pode não existir ainda */
+  }
+  return null
+}
+
+export async function saveAssistantConfig(companyId: string, config: unknown): Promise<void> {
+  const c = await cid(companyId)
+  await fetch(`${REST}/settings?company_id=eq.${c}`, {
+    method: 'PATCH',
+    headers: { ...H, Prefer: 'return=minimal' },
+    body: JSON.stringify({ assistant_config: config }),
+    cache: 'no-store',
+  })
+}
+
 // Salva (ou apaga com null) a chave da OpenAI da empresa.
 export async function saveOpenAIKey(companyId: string, key: string | null): Promise<void> {
   const c = await cid(companyId)
