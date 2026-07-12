@@ -39,28 +39,40 @@ const METRICS: { k: keyof DayPoint; label: string }[] = [
 ]
 
 // Gráfico de barras simples (SVG) das estatísticas por dia.
+// Altura FIXA em px (nunca "explode" com poucos dados) e rolagem horizontal
+// quando há muitos dias.
 function BarChart({ series, metric }: { series: DayPoint[]; metric: keyof DayPoint }) {
-  if (!series.length) return <div className="py-10 text-center text-sm text-gray-400">Sem dados no período.</div>
+  if (!series.length) return <div className="py-8 text-center text-sm text-gray-400">Sem dados no período.</div>
   const vals = series.map((d) => Number(d[metric]) || 0)
   const max = Math.max(1, ...vals)
-  const W = Math.max(series.length * 46, 300), H = 220, pad = 28
-  const bw = (W - pad) / series.length
+  const H = 200, padL = 32, padTop = 18, padBottom = 24
+  const slot = 46
+  const W = Math.max(series.length * slot + padL + 8, 260)
+  const plotH = H - padTop - padBottom
   const showEvery = series.length > 20 ? Math.ceil(series.length / 15) : 1
+  const ticks = max <= 2 ? Array.from({ length: max + 1 }, (_, i) => i) : [0, max / 2, max]
   return (
     <div className="overflow-x-auto">
-      <svg viewBox={`0 0 ${W} ${H}`} className="min-w-full" style={{ minWidth: W }}>
-        {[0, 0.5, 1].map((f) => { const y = pad + (H - pad * 2) * (1 - f); return (<g key={f}><line x1={pad} y1={y} x2={W} y2={y} stroke="#eef1f5" /><text x={0} y={y + 3} fontSize="9" fill="#9ca3af">{Math.round(max * f)}</text></g>) })}
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ maxWidth: '100%' }}>
+        <defs>
+          <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#34d399" />
+            <stop offset="1" stopColor="#10b981" />
+          </linearGradient>
+        </defs>
+        {ticks.map((t) => { const y = padTop + plotH * (1 - t / max); return (<g key={t}><line x1={padL} y1={y} x2={W - 6} y2={y} stroke="#eef1f5" /><text x={2} y={y + 3.5} fontSize="10" fill="#9ca3af">{Math.round(t)}</text></g>) })}
         {series.map((d, i) => {
           const v = Number(d[metric]) || 0
-          const bh = (H - pad * 2) * (v / max)
-          const x = pad + i * bw + bw * 0.2
-          const w = bw * 0.6
-          const y = H - pad - bh
+          const bh = v > 0 ? Math.max(plotH * (v / max), 2) : 0
+          const w = slot * 0.5
+          const x = padL + i * slot + (slot - w) / 2
+          const y = padTop + plotH - bh
           const lbl = d.date.slice(5).replace('-', '/')
           return (
             <g key={d.date}>
-              <rect x={x} y={y} width={w} height={bh} rx={3} fill="#3b82f6"><title>{lbl}: {v}</title></rect>
-              {i % showEvery === 0 && <text x={x + w / 2} y={H - pad + 12} fontSize="9" fill="#9ca3af" textAnchor="middle">{lbl}</text>}
+              <rect x={x} y={y} width={w} height={bh} rx={4} fill="url(#barGrad)"><title>{lbl}: {v}</title></rect>
+              {v > 0 && <text x={x + w / 2} y={y - 4} fontSize="10" fontWeight={600} fill="#059669" textAnchor="middle">{v}</text>}
+              {i % showEvery === 0 && <text x={x + w / 2} y={H - 7} fontSize="10" fill="#9ca3af" textAnchor="middle">{lbl}</text>}
             </g>
           )
         })}
