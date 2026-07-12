@@ -6,27 +6,20 @@ import LabelsPanel from './labels-panel'
 import QuickRepliesPanel from './quick-replies-panel'
 import FlowDefaultsPanel from './flow-defaults-panel'
 
-type DayTime = { start: string; end: string }
-type Hours = { days: number[]; start: string; end: string; perDay?: Record<string, DayTime> }
 type Settings = {
   bot_enabled: boolean
   company_name: string
-  hours: Hours
-  off_hours_message: string
   min_delay_ms: number
   max_delay_ms: number
 }
 
-const DIAS = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado']
-
-type Tab = 'conexao' | 'fluxos' | 'etiquetas' | 'respostas' | 'equipe' | 'horarios' | 'robo' | 'companhia'
+type Tab = 'conexao' | 'fluxos' | 'etiquetas' | 'respostas' | 'equipe' | 'robo' | 'companhia'
 const MENU: { k: Tab; label: string }[] = [
   { k: 'conexao', label: 'Conexão' },
   { k: 'fluxos', label: 'Fluxos Padrões' },
   { k: 'etiquetas', label: 'Etiquetas' },
   { k: 'respostas', label: 'Respostas rápidas' },
   { k: 'equipe', label: 'Equipe' },
-  { k: 'horarios', label: 'Horários' },
   { k: 'robo', label: 'Robô' },
   { k: 'companhia', label: 'Companhia' },
 ]
@@ -41,21 +34,6 @@ export default function Config() {
   }, [])
 
   function up(patch: Partial<Settings>) { setS((cur) => (cur ? { ...cur, ...patch } : cur)) }
-  function upHours(patch: Partial<Hours>) { setS((cur) => (cur ? { ...cur, hours: { ...cur.hours, ...patch } } : cur)) }
-  function toggleDay(d: number) {
-    if (!s) return
-    const days = s.hours.days.includes(d) ? s.hours.days.filter((x) => x !== d) : [...s.hours.days, d].sort()
-    upHours({ days })
-  }
-  function setDayTime(i: number, patch: Partial<DayTime>) {
-    setS((cur) => {
-      if (!cur) return cur
-      const perDay = { ...(cur.hours.perDay || {}) }
-      const t = perDay[i] || { start: cur.hours.start, end: cur.hours.end }
-      perDay[i] = { ...t, ...patch }
-      return { ...cur, hours: { ...cur.hours, perDay } }
-    })
-  }
 
   async function save() {
     if (!s) return
@@ -103,40 +81,6 @@ export default function Config() {
             <div><Head title="Equipe" /><EquipePanel /></div>
           ) : !s ? (
             <div className="text-sm text-gray-400">carregando…</div>
-          ) : tab === 'horarios' ? (
-            <div>
-              <Head title="Horários" save />
-              <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                <div className="font-medium text-gray-800">Horário de funcionamento</div>
-                <p className="mt-1 text-xs text-gray-500">Cada dia pode ter um horário diferente. Fora do horário, o bot manda a mensagem de fora do expediente.</p>
-                <div className="mt-4 space-y-2">
-                  {DIAS.map((nome, i) => {
-                    const aberto = s.hours.days.includes(i)
-                    const t = s.hours.perDay?.[i] || { start: s.hours.start, end: s.hours.end }
-                    return (
-                      <div key={i} className="flex flex-wrap items-center gap-4 rounded-xl border border-gray-100 px-4 py-2.5">
-                        <span className="w-28 text-sm font-medium text-gray-700">{nome}</span>
-                        <button onClick={() => toggleDay(i)} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${aberto ? 'bg-emerald-500' : 'bg-gray-300'}`}>
-                          <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${aberto ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                        </button>
-                        <span className={`w-16 text-sm font-medium ${aberto ? 'text-emerald-600' : 'text-red-400'}`}>{aberto ? 'Aberto' : 'Fechado'}</span>
-                        {aberto && (
-                          <div className="flex items-center gap-2 text-sm">
-                            <input type="time" value={t.start} onChange={(e) => setDayTime(i, { start: e.target.value })} className="rounded-lg border border-gray-300 p-1.5" />
-                            <span className="text-gray-400">—</span>
-                            <input type="time" value={t.end} onChange={(e) => setDayTime(i, { end: e.target.value })} className="rounded-lg border border-gray-300 p-1.5" />
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-                <label className="mt-4 block">
-                  <span className="text-sm font-medium text-gray-700">Mensagem fora do horário</span>
-                  <textarea value={s.off_hours_message} onChange={(e) => up({ off_hours_message: e.target.value })} rows={3} className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm outline-none focus:border-emerald-500" />
-                </label>
-              </section>
-            </div>
           ) : tab === 'robo' ? (
             <div>
               <Head title="Robô" save />
