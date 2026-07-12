@@ -551,6 +551,66 @@ setInterval(async()=>{
       return
     }
 
+    // Editar uma mensagem NOSSA de texto no WhatsApp.
+    // body: { to, waMessageId, text, company }
+    if (req.method === 'POST' && req.url === '/edit-message') {
+      let body = ''
+      req.on('data', (c) => (body += c))
+      req.on('end', async () => {
+        try {
+          const { to, waMessageId, text, company } = JSON.parse(body || '{}')
+          if (!to || !waMessageId || !text) throw new Error('to, waMessageId e text obrigatórios')
+          const s = getSession(company || SEED_COMPANY_ID)
+          if (!s.sock || !s.waConnected) throw new Error('WhatsApp desconectado')
+          await s.sock.sendMessage(to, { text, edit: { remoteJid: to, fromMe: true, id: waMessageId } })
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true }))
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: e.message }))
+        }
+      })
+      return
+    }
+
+    // Encaminhar (reenviar o conteúdo) pra outro contato.
+    // body: { to, text, mediaUrl, mediaType, sentBy, contactId, company }
+    if (req.method === 'POST' && req.url === '/forward') {
+      let body = ''
+      req.on('data', (c) => (body += c))
+      req.on('end', async () => {
+        try {
+          const { to, text, mediaUrl, mediaType, sentBy, contactId, company } = JSON.parse(body || '{}')
+          if (!to) throw new Error('to obrigatório')
+          const s = getSession(company || SEED_COMPANY_ID)
+          if (!s.sock || !s.waConnected) throw new Error('WhatsApp desconectado')
+          let sent, label
+          if (mediaUrl) {
+            const cap = text && !/^\[.*\]$/.test(text) ? text : ''
+            const content = mediaType === 'image' ? { image: { url: mediaUrl }, caption: cap }
+              : mediaType === 'video' ? { video: { url: mediaUrl }, caption: cap }
+              : mediaType === 'audio' ? { audio: { url: mediaUrl }, mimetype: 'audio/mpeg' }
+              : { document: { url: mediaUrl }, fileName: 'arquivo', caption: cap }
+            sent = await s.sock.sendMessage(to, content)
+            label = cap || (mediaType === 'image' ? '[imagem]' : mediaType === 'video' ? '[vídeo]' : mediaType === 'audio' ? '[áudio]' : '[documento]')
+          } else {
+            if (!text) throw new Error('nada pra encaminhar')
+            sent = await s.sock.sendMessage(to, { text })
+            label = text
+          }
+          try {
+            await insertMessage({ contactId, jid: to, fromMe: true, text: label, waMessageId: sent?.key?.id, sentAt: new Date().toISOString(), sentBy, companyId: company || SEED_COMPANY_ID, mediaUrl: mediaUrl || null, mediaType: mediaType || null })
+          } catch {}
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true }))
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: e.message }))
+        }
+      })
+      return
+    }
+
     // Apagar mensagem no WhatsApp (delete for everyone) — só as NOSSAS.
     // body: { to, waMessageId, company }
     if (req.method === 'POST' && req.url === '/delete-message') {
