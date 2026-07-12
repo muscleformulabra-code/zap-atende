@@ -49,6 +49,52 @@ export async function getSettings(companyId?: string): Promise<Settings> {
   return rows[0]
 }
 
+// ── Chave da OpenAI (Assistente de Leads) — SEMPRE server-side ──
+// Lê a chave da empresa; se não tiver, cai no fallback OPENAI_API_KEY (env).
+export async function getOpenAIKey(companyId?: string): Promise<string | null> {
+  const c = await cid(companyId)
+  try {
+    const res = await fetch(`${REST}/settings?company_id=eq.${c}&select=openai_key&limit=1`, { headers: H, cache: 'no-store' })
+    if (res.ok) {
+      const rows = await res.json()
+      const k = rows[0]?.openai_key
+      if (k && String(k).trim()) return String(k).trim()
+    }
+  } catch {
+    /* coluna pode não existir ainda */
+  }
+  return process.env.OPENAI_API_KEY?.trim() || null
+}
+
+// Salva (ou apaga com null) a chave da OpenAI da empresa.
+export async function saveOpenAIKey(companyId: string, key: string | null): Promise<void> {
+  const c = await cid(companyId)
+  await fetch(`${REST}/settings?company_id=eq.${c}`, {
+    method: 'PATCH',
+    headers: { ...H, Prefer: 'return=minimal' },
+    body: JSON.stringify({ openai_key: key }),
+    cache: 'no-store',
+  })
+}
+
+// Status da integração (SEM devolver a chave inteira — só se está configurada
+// e uma prévia dos últimos 4 dígitos).
+export async function openAIStatus(companyId?: string): Promise<{ configured: boolean; preview: string | null; fromEnv: boolean }> {
+  const c = await cid(companyId)
+  let companyKey: string | null = null
+  try {
+    const res = await fetch(`${REST}/settings?company_id=eq.${c}&select=openai_key&limit=1`, { headers: H, cache: 'no-store' })
+    if (res.ok) companyKey = (await res.json())[0]?.openai_key || null
+  } catch {}
+  const envKey = process.env.OPENAI_API_KEY?.trim() || null
+  const key = (companyKey && companyKey.trim()) || envKey
+  return {
+    configured: !!key,
+    preview: key ? `sk-…${key.slice(-4)}` : null,
+    fromEnv: !companyKey && !!envKey,
+  }
+}
+
 export async function saveSettings(patch: Partial<Settings>): Promise<void> {
   const c = await cid()
   const put = async (body: Record<string, unknown>) =>

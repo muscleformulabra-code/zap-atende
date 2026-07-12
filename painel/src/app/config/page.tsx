@@ -5,6 +5,7 @@ import EquipePanel from '@/components/equipe-panel'
 import LabelsPanel from './labels-panel'
 import QuickRepliesPanel from './quick-replies-panel'
 import FlowDefaultsPanel from './flow-defaults-panel'
+import IntegrationsPanel from './integrations-panel'
 
 type Settings = {
   bot_enabled: boolean
@@ -13,13 +14,14 @@ type Settings = {
   max_delay_ms: number
 }
 
-type Tab = 'conexao' | 'fluxos' | 'etiquetas' | 'respostas' | 'equipe' | 'robo' | 'companhia'
+type Tab = 'conexao' | 'fluxos' | 'etiquetas' | 'respostas' | 'equipe' | 'integracoes' | 'robo' | 'companhia'
 const MENU: { k: Tab; label: string }[] = [
   { k: 'conexao', label: 'Conexão' },
   { k: 'fluxos', label: 'Fluxos Padrões' },
   { k: 'etiquetas', label: 'Etiquetas' },
   { k: 'respostas', label: 'Respostas rápidas' },
   { k: 'equipe', label: 'Equipe' },
+  { k: 'integracoes', label: 'Integrações' },
   { k: 'robo', label: 'Robô' },
   { k: 'companhia', label: 'Companhia' },
 ]
@@ -79,6 +81,8 @@ export default function Config() {
             <div><Head title="Respostas rápidas" /><QuickRepliesPanel /></div>
           ) : tab === 'equipe' ? (
             <div><Head title="Equipe" /><EquipePanel /></div>
+          ) : tab === 'integracoes' ? (
+            <div><Head title="Integrações" /><IntegrationsPanel /></div>
           ) : !s ? (
             <div className="text-sm text-gray-400">carregando…</div>
           ) : tab === 'robo' ? (

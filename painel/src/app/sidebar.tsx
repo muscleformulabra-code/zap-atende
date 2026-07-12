@@ -126,6 +126,24 @@ export default function Sidebar() {
             </div>
           )
         })}
+
+        {/* Assistente de Leads (IA) — sempre visível */}
+        <div className="mt-5">
+          <div className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-300">Inteligência</div>
+          <a
+            href="/assistente"
+            className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] font-semibold transition-all ${
+              p === '/assistente'
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-200'
+                : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+            }`}
+          >
+            <span className={p === '/assistente' ? 'text-white' : 'text-gray-400 group-hover:text-emerald-500'}>
+              <Icon d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.5.5 1 1.5 1 2.5h6c0-1 .5-2 1-2.5A6 6 0 0 0 12 3z" />
+            </span>
+            Assistente de Leads
+          </a>
+        </div>
       </nav>
 
       {/* RODAPÉ: seletor de empresa + conexão + usuário + sair */}
