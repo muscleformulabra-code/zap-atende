@@ -45,17 +45,29 @@ export function permForPath(pathname: string): PermKey | null {
 // Lê as permissões de dentro de um JWT do Supabase (sem verificar assinatura —
 // é o nosso próprio cookie httpOnly). Retorna null se o usuário não tem perms
 // definidas = DONO/admin (acesso total, legado).
-export function permsFromJwt(token: string): Perms | null {
+// Decodifica o payload (claims) do JWT sem verificar assinatura.
+function decodeJwt(token: string): Record<string, unknown> | null {
   try {
     const part = token.split('.')[1]
     const json =
       typeof atob !== 'undefined'
         ? atob(part.replace(/-/g, '+').replace(/_/g, '/'))
         : Buffer.from(part, 'base64').toString('utf8')
-    const payload = JSON.parse(json)
-    const perms = payload?.user_metadata?.perms
-    return perms ? normalizePerms(perms) : null
+    return JSON.parse(json)
   } catch {
     return null
   }
+}
+
+export function permsFromJwt(token: string): Perms | null {
+  const payload = decodeJwt(token) as { user_metadata?: { perms?: Partial<Perms> } } | null
+  const perms = payload?.user_metadata?.perms
+  return perms ? normalizePerms(perms) : null
+}
+
+// Segundos até o token expirar (negativo = já expirou; null = sem exp legível).
+export function secondsUntilExpiry(token: string): number | null {
+  const payload = decodeJwt(token) as { exp?: number } | null
+  if (!payload?.exp) return null
+  return payload.exp - Math.floor(Date.now() / 1000)
 }

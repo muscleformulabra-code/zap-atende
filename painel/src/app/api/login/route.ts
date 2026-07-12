@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { signIn } from '@/lib/auth'
+import { setSessionCookies } from '@/lib/session'
 
 export async function POST(req: Request) {
   const { email, password } = await req.json().catch(() => ({}))
@@ -7,9 +8,11 @@ export async function POST(req: Request) {
   try {
     const auth = await signIn(email, password)
     const res = NextResponse.json({ ok: true })
-    const maxAge = auth.expires_in || 3600
-    res.cookies.set('za_token', auth.access_token, { httpOnly: true, path: '/', maxAge, sameSite: 'lax' })
-    res.cookies.set('za_email', auth.user?.email || email, { path: '/', maxAge, sameSite: 'lax' })
+    setSessionCookies(res, {
+      access_token: auth.access_token,
+      refresh_token: auth.refresh_token,
+      email: auth.user?.email || email,
+    })
     return res
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 401 })

@@ -10,9 +10,9 @@ if (!URL || !ANON || !SERVICE) {
   throw new Error('Faltam SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_KEY em painel/.env.local')
 }
 
-export type AuthResult = { access_token: string; expires_in: number; user: { id: string; email: string } }
+export type AuthResult = { access_token: string; refresh_token: string; expires_in: number; user: { id: string; email: string } }
 
-// Login (email + senha) -> token.
+// Login (email + senha) -> token (+ refresh_token pra manter a sessão viva).
 export async function signIn(email: string, password: string): Promise<AuthResult> {
   const r = await fetch(`${URL}/auth/v1/token?grant_type=password`, {
     method: 'POST',
@@ -23,6 +23,23 @@ export async function signIn(email: string, password: string): Promise<AuthResul
   const d = await r.json()
   if (!r.ok) throw new Error(d.error_description || d.msg || 'E-mail ou senha inválidos')
   return d
+}
+
+// Renova a sessão usando o refresh_token (mantém o atendente logado sem redigitar
+// senha). Retorna o novo par de tokens ou null se o refresh_token não vale mais.
+export async function refreshSession(refreshToken: string): Promise<AuthResult | null> {
+  try {
+    const r = await fetch(`${URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: { apikey: ANON!, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      cache: 'no-store',
+    })
+    if (!r.ok) return null
+    return await r.json()
+  } catch {
+    return null
+  }
 }
 
 // Cria um atendente (admin API, com a service key) com suas permissões e nome.
