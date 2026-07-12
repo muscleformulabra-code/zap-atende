@@ -17,7 +17,9 @@ async function getSession(contactId) {
   return { flowId: rows[0].flow_id, currentNode: rows[0].current_node, status: rows[0].status, updatedAt: rows[0].updated_at }
 }
 
-async function saveSession(contactId, state) {
+const SEED_COMPANY_ID = '00000000-0000-0000-0000-000000000001'
+
+async function saveSession(contactId, state, companyId) {
   await fetch(`${REST}/flow_sessions?on_conflict=contact_id`, {
     method: 'POST',
     headers: { ...H, Prefer: 'resolution=merge-duplicates,return=minimal' },
@@ -26,14 +28,16 @@ async function saveSession(contactId, state) {
       flow_id: state.flowId || null,
       current_node: state.currentNode,
       status: state.status,
+      company_id: companyId || SEED_COMPANY_ID,
       updated_at: new Date().toISOString(),
     }),
   })
 }
 
-// Busca as configurações (liga/desliga, horário, delays) no painel.
-async function getSettings() {
-  const res = await fetch(`${PAINEL_URL}/api/settings`)
+// Busca as configurações (liga/desliga, horário, delays) da EMPRESA no painel.
+async function getSettings(companyId) {
+  const q = companyId ? `?company=${companyId}` : ''
+  const res = await fetch(`${PAINEL_URL}/api/settings${q}`)
   if (!res.ok) throw new Error(`settings ${res.status}`)
   return res.json()
 }
@@ -59,11 +63,11 @@ function isWithinHours(hours) {
   return hhmm >= (hours.start || '00:00') && hhmm <= (hours.end || '23:59')
 }
 
-async function callBot(state, input, startFlowId = null) {
+async function callBot(state, input, startFlowId = null, companyId = null) {
   const res = await fetch(`${PAINEL_URL}/api/simulate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ state, input, startFlowId }),
+    body: JSON.stringify({ state, input, startFlowId, company: companyId }),
   })
   if (!res.ok) throw new Error(`bot ${res.status}`)
   return res.json() // { replies: [{text}], state }
@@ -85,7 +89,7 @@ async function callBot(state, input, startFlowId = null) {
 //  - Fluxo de resposta padrão (defaultFlowId) = quando um contato já concluído
 //    volta a escrever (o "2º contato").
 async function handleIncoming(contactId, text, opts = {}) {
-  const { reengageHours = 12, isMedia = false, defaultFlowId = null, mediaFlowId = null } =
+  const { reengageHours = 12, isMedia = false, defaultFlowId = null, mediaFlowId = null, companyId = null } =
     typeof opts === 'number' ? { reengageHours: opts } : opts
 
   const session = await getSession(contactId)
@@ -95,15 +99,15 @@ async function handleIncoming(contactId, text, opts = {}) {
   // Anexo de mídia → fluxo padrão de mídia (se configurado). Não interrompe um
   // fluxo ativo que esteja aguardando (aí a mídia é tratada como resposta).
   if (isMedia && mediaFlowId && (!session || session.status !== 'active')) {
-    const result = await callBot(null, text, mediaFlowId)
-    await saveSession(contactId, result.state)
+    const result = await callBot(null, text, mediaFlowId, companyId)
+    await saveSession(contactId, result.state, companyId)
     return result
   }
 
   // Sem sessão OU voltou depois de muito tempo → boas-vindas (menu).
   if (!session || stale) {
-    const result = await callBot(null, text)
-    await saveSession(contactId, result.state)
+    const result = await callBot(null, text, null, companyId)
+    await saveSession(contactId, result.state, companyId)
     return result
   }
 
@@ -111,22 +115,22 @@ async function handleIncoming(contactId, text, opts = {}) {
   // (que normalmente só abre o atendimento). Sem ele, apenas reabre em silêncio.
   if (session.status === 'done') {
     if (defaultFlowId) {
-      const result = await callBot(null, text, defaultFlowId)
-      await saveSession(contactId, result.state)
+      const result = await callBot(null, text, defaultFlowId, companyId)
+      await saveSession(contactId, result.state, companyId)
       return result
     }
-    await saveSession(contactId, { flowId: session.flowId, currentNode: null, status: 'handoff' })
+    await saveSession(contactId, { flowId: session.flowId, currentNode: null, status: 'handoff' }, companyId)
     return { replies: [] }
   }
 
   // Atendente humano no comando → bot quieto (mantém a conversa aberta/recente).
   if (session.status === 'handoff') {
-    await saveSession(contactId, { flowId: session.flowId, currentNode: session.currentNode, status: 'handoff' })
+    await saveSession(contactId, { flowId: session.flowId, currentNode: session.currentNode, status: 'handoff' }, companyId)
     return { replies: [] }
   }
 
   // Fluxo ativo → avança.
-  const result = await callBot(session, text)
+  const result = await callBot(session, text, null, companyId)
 
   // Limite de 2 erros num menu: se o paciente responde algo inválido 2x, o bot
   // FICA QUIETO (status atendimento) — o atendente que já acompanha assume, sem
@@ -135,16 +139,16 @@ async function handleIncoming(contactId, text, opts = {}) {
     const n = (invalidCount.get(contactId) || 0) + 1
     if (n >= 2) {
       invalidCount.delete(contactId)
-      await saveSession(contactId, { flowId: result.state.flowId, currentNode: result.state.currentNode, status: 'handoff' })
+      await saveSession(contactId, { flowId: result.state.flowId, currentNode: result.state.currentNode, status: 'handoff' }, companyId)
       return { replies: [] } // sem repetir, sem "transferindo" — atendente assume
     }
     invalidCount.set(contactId, n)
-    await saveSession(contactId, result.state)
+    await saveSession(contactId, result.state, companyId)
     return result
   }
 
   invalidCount.delete(contactId) // resposta válida → zera o contador
-  await saveSession(contactId, result.state)
+  await saveSession(contactId, result.state, companyId)
   return result
 }
 

@@ -22,14 +22,20 @@ const baseHeaders = {
   'Content-Type': 'application/json',
 }
 
-// Salva/atualiza o contato (chave: jid). Só manda o nome quando temos um,
-// pra não sobrescrever com vazio.
-async function upsertContact({ jid, phone, name }) {
-  const row = { jid }
+// Empresa padrão (a clínica) quando o conector não passa company_id — mantém
+// tudo funcionando na Empresa #1 na transição pro multi-WhatsApp.
+const SEED_COMPANY_ID = '00000000-0000-0000-0000-000000000001'
+
+// Salva/atualiza o contato. MULTI-EMPRESA: a chave passa a ser (company_id, jid)
+// — o mesmo número pode ser contato de empresas diferentes sem conflito. Só
+// manda o nome quando temos um, pra não sobrescrever com vazio.
+async function upsertContact({ jid, phone, name, companyId }) {
+  const cid = companyId || SEED_COMPANY_ID
+  const row = { jid, company_id: cid }
   if (phone) row.phone = phone // não sobrescreve com vazio (ex.: LID sem número real)
   if (name) row.name = name
 
-  const res = await fetch(`${REST}/contacts?on_conflict=jid`, {
+  const res = await fetch(`${REST}/contacts?on_conflict=company_id,jid`, {
     method: 'POST',
     headers: { ...baseHeaders, Prefer: 'resolution=merge-duplicates,return=representation' },
     body: JSON.stringify(row),
@@ -40,7 +46,7 @@ async function upsertContact({ jid, phone, name }) {
 }
 
 // Guarda a mensagem. 409 = duplicada (mesmo id do WhatsApp) -> ignora.
-async function insertMessage({ contactId, jid, fromMe, text, waMessageId, sentAt, sentBy }) {
+async function insertMessage({ contactId, jid, fromMe, text, waMessageId, sentAt, sentBy, companyId }) {
   const res = await fetch(`${REST}/messages`, {
     method: 'POST',
     headers: { ...baseHeaders, Prefer: 'return=minimal' },
@@ -52,6 +58,7 @@ async function insertMessage({ contactId, jid, fromMe, text, waMessageId, sentAt
       wa_message_id: waMessageId,
       sent_at: sentAt,
       sent_by: sentBy ?? null,
+      company_id: companyId || SEED_COMPANY_ID,
     }),
   })
   if (!res.ok && res.status !== 409) {
@@ -75,12 +82,12 @@ async function updateAvatar(contactId, avatarUrl) {
 
 // Marca a sessão do contato como 'done' (usado no histórico → vai pra Concluídas).
 // updatedAt = hora da última mensagem, pra o re-engajamento (12h) funcionar certo.
-async function setSessionDone(contactId, updatedAt) {
+async function setSessionDone(contactId, updatedAt, companyId) {
   try {
     await fetch(`${REST}/flow_sessions?on_conflict=contact_id`, {
       method: 'POST',
       headers: { ...baseHeaders, Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify({ contact_id: contactId, status: 'done', updated_at: updatedAt || new Date().toISOString() }),
+      body: JSON.stringify({ contact_id: contactId, status: 'done', company_id: companyId || SEED_COMPANY_ID, updated_at: updatedAt || new Date().toISOString() }),
     })
   } catch {
     /* ignora */
