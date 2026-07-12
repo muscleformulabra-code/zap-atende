@@ -5,6 +5,7 @@ import {
   renameFlow,
   setActiveFlow,
   updateFlowDefinition,
+  moveFlow,
 } from '@/lib/flow-db'
 import type { FlowGraph } from '@/lib/flow-graph'
 
@@ -38,6 +39,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
     await renameFlow(id, name)
   } else if (body?.action === 'activate') {
     await setActiveFlow(id)
+  } else if (body?.action === 'move') {
+    await moveFlow(id, body?.folderId ?? null)
   } else {
     return NextResponse.json({ error: 'ação inválida' }, { status: 400 })
   }

@@ -5,7 +5,7 @@ import { createFlow, listFlows } from '@/lib/flow-db'
 export async function GET() {
   const rows = await listFlows()
   return NextResponse.json(
-    rows.map((r) => ({ id: r.id, name: r.name, is_active: r.is_active, updated_at: r.updated_at }))
+    rows.map((r) => ({ id: r.id, name: r.name, is_active: r.is_active, updated_at: r.updated_at, folder_id: r.folder_id ?? null }))
   )
 }
 

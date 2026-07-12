@@ -30,6 +30,45 @@ export type FlowRow = {
   is_active: boolean
   definition: FlowGraph
   updated_at: string
+  folder_id?: string | null
+}
+
+export type FlowFolder = { id: string; name: string; count: number }
+
+// ── Pastas de fluxos ──
+export async function listFolders(): Promise<FlowFolder[]> {
+  const c = await cid()
+  try {
+    const [folders, flows] = await Promise.all([
+      (await req(`flow_folders?company_id=eq.${c}&select=id,name&order=name.asc`)).json(),
+      (await req(`flows?company_id=eq.${c}&select=folder_id`)).json(),
+    ])
+    const counts: Record<string, number> = {}
+    for (const f of flows as { folder_id: string | null }[]) if (f.folder_id) counts[f.folder_id] = (counts[f.folder_id] || 0) + 1
+    return (folders as { id: string; name: string }[]).map((f) => ({ ...f, count: counts[f.id] || 0 }))
+  } catch {
+    return []
+  }
+}
+
+export async function createFolder(name: string): Promise<void> {
+  const c = await cid()
+  await req('flow_folders', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ company_id: c, name: name.trim() }) })
+}
+
+export async function renameFolder(id: string, name: string): Promise<void> {
+  const c = await cid()
+  await req(`flow_folders?id=eq.${id}&company_id=eq.${c}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ name: name.trim() }) })
+}
+
+export async function deleteFolder(id: string): Promise<void> {
+  const c = await cid()
+  await req(`flow_folders?id=eq.${id}&company_id=eq.${c}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } })
+}
+
+export async function moveFlow(flowId: string, folderId: string | null): Promise<void> {
+  const c = await cid()
+  await req(`flows?id=eq.${flowId}&company_id=eq.${c}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ folder_id: folderId }) })
 }
 
 async function req(path: string, init: RequestInit = {}): Promise<Response> {
