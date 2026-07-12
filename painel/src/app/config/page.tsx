@@ -1,8 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import EquipePanel from '@/components/equipe-panel'
+import LabelsPanel from './labels-panel'
+import QuickRepliesPanel from './quick-replies-panel'
+import FlowDefaultsPanel from './flow-defaults-panel'
 
-type Hours = { days: number[]; start: string; end: string }
+type DayTime = { start: string; end: string }
+type Hours = { days: number[]; start: string; end: string; perDay?: Record<string, DayTime> }
 type Settings = {
   bot_enabled: boolean
   company_name: string
@@ -14,18 +19,16 @@ type Settings = {
 
 const DIAS = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado']
 
-type Tab = 'conexao' | 'horarios' | 'robo' | 'companhia'
+type Tab = 'conexao' | 'fluxos' | 'etiquetas' | 'respostas' | 'equipe' | 'horarios' | 'robo' | 'companhia'
 const MENU: { k: Tab; label: string }[] = [
   { k: 'conexao', label: 'Conexão' },
+  { k: 'fluxos', label: 'Fluxos Padrões' },
+  { k: 'etiquetas', label: 'Etiquetas' },
+  { k: 'respostas', label: 'Respostas rápidas' },
+  { k: 'equipe', label: 'Equipe' },
   { k: 'horarios', label: 'Horários' },
   { k: 'robo', label: 'Robô' },
   { k: 'companhia', label: 'Companhia' },
-]
-const LINKS: { href: string; label: string }[] = [
-  { href: '/contatos', label: 'Etiquetas' },
-  { href: '/respostas', label: 'Respostas rápidas' },
-  { href: '/equipe', label: 'Equipe' },
-  { href: '/fluxos', label: 'Fluxos' },
 ]
 
 export default function Config() {
@@ -44,6 +47,15 @@ export default function Config() {
     const days = s.hours.days.includes(d) ? s.hours.days.filter((x) => x !== d) : [...s.hours.days, d].sort()
     upHours({ days })
   }
+  function setDayTime(i: number, patch: Partial<DayTime>) {
+    setS((cur) => {
+      if (!cur) return cur
+      const perDay = { ...(cur.hours.perDay || {}) }
+      const t = perDay[i] || { start: cur.hours.start, end: cur.hours.end }
+      perDay[i] = { ...t, ...patch }
+      return { ...cur, hours: { ...cur.hours, perDay } }
+    })
+  }
 
   async function save() {
     if (!s) return
@@ -58,6 +70,12 @@ export default function Config() {
       {status === 'saving' ? 'salvando…' : status === 'saved' ? '✓ salvo' : 'Salvar'}
     </button>
   )
+  const Head = ({ title, save }: { title: string; save?: boolean }) => (
+    <div className="mb-4 flex items-center justify-between">
+      <h2 className="text-xl font-bold text-gray-900">{title}</h2>
+      {save && <SaveBtn />}
+    </div>
+  )
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-8">
@@ -69,52 +87,49 @@ export default function Config() {
               {m.label}
             </button>
           ))}
-          <div className="my-2 border-t border-gray-100" />
-          {LINKS.map((l) => (
-            <a key={l.href} href={l.href} className="flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-50 hover:text-gray-800">
-              {l.label}<span className="text-gray-300">↗</span>
-            </a>
-          ))}
         </nav>
 
         {/* CONTEÚDO */}
         <div className="min-w-0 flex-1">
-          {!s ? (
+          {tab === 'conexao' ? (
+            <div><Head title="Conexão" /><WhatsAppConnection /></div>
+          ) : tab === 'fluxos' ? (
+            <div><Head title="Fluxos Padrões" /><FlowDefaultsPanel /></div>
+          ) : tab === 'etiquetas' ? (
+            <div><Head title="Etiquetas" /><LabelsPanel /></div>
+          ) : tab === 'respostas' ? (
+            <div><Head title="Respostas rápidas" /><QuickRepliesPanel /></div>
+          ) : tab === 'equipe' ? (
+            <div><Head title="Equipe" /><EquipePanel /></div>
+          ) : !s ? (
             <div className="text-sm text-gray-400">carregando…</div>
-          ) : tab === 'conexao' ? (
-            <div>
-              <h2 className="mb-4 text-xl font-bold text-gray-900">Conexão</h2>
-              <WhatsAppConnection />
-            </div>
           ) : tab === 'horarios' ? (
             <div>
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xl font-bold text-gray-900">Horários</h2>
-                <SaveBtn />
-              </div>
+              <Head title="Horários" save />
               <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
                 <div className="font-medium text-gray-800">Horário de funcionamento</div>
-                <p className="mt-1 text-xs text-gray-500">Fora desse horário, o bot manda a mensagem de fora do expediente em vez do fluxo.</p>
+                <p className="mt-1 text-xs text-gray-500">Cada dia pode ter um horário diferente. Fora do horário, o bot manda a mensagem de fora do expediente.</p>
                 <div className="mt-4 space-y-2">
                   {DIAS.map((nome, i) => {
                     const aberto = s.hours.days.includes(i)
+                    const t = s.hours.perDay?.[i] || { start: s.hours.start, end: s.hours.end }
                     return (
-                      <div key={i} className="flex items-center gap-4 rounded-xl border border-gray-100 px-4 py-2.5">
+                      <div key={i} className="flex flex-wrap items-center gap-4 rounded-xl border border-gray-100 px-4 py-2.5">
                         <span className="w-28 text-sm font-medium text-gray-700">{nome}</span>
                         <button onClick={() => toggleDay(i)} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${aberto ? 'bg-emerald-500' : 'bg-gray-300'}`}>
                           <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${aberto ? 'translate-x-5' : 'translate-x-0.5'}`} />
                         </button>
                         <span className={`w-16 text-sm font-medium ${aberto ? 'text-emerald-600' : 'text-red-400'}`}>{aberto ? 'Aberto' : 'Fechado'}</span>
+                        {aberto && (
+                          <div className="flex items-center gap-2 text-sm">
+                            <input type="time" value={t.start} onChange={(e) => setDayTime(i, { start: e.target.value })} className="rounded-lg border border-gray-300 p-1.5" />
+                            <span className="text-gray-400">—</span>
+                            <input type="time" value={t.end} onChange={(e) => setDayTime(i, { end: e.target.value })} className="rounded-lg border border-gray-300 p-1.5" />
+                          </div>
+                        )}
                       </div>
                     )
                   })}
-                </div>
-                <div className="mt-4 flex items-center gap-2 border-t border-gray-100 pt-4 text-sm">
-                  <span className="text-gray-500">Atende das</span>
-                  <input type="time" value={s.hours.start} onChange={(e) => upHours({ start: e.target.value })} className="rounded-lg border border-gray-300 p-1.5" />
-                  <span className="text-gray-500">às</span>
-                  <input type="time" value={s.hours.end} onChange={(e) => upHours({ end: e.target.value })} className="rounded-lg border border-gray-300 p-1.5" />
-                  <span className="text-xs text-gray-400">(vale pros dias abertos)</span>
                 </div>
                 <label className="mt-4 block">
                   <span className="text-sm font-medium text-gray-700">Mensagem fora do horário</span>
@@ -124,10 +139,7 @@ export default function Config() {
             </div>
           ) : tab === 'robo' ? (
             <div>
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xl font-bold text-gray-900">Robô</h2>
-                <SaveBtn />
-              </div>
+              <Head title="Robô" save />
               <div className="space-y-5">
                 <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
                   <label className="flex items-center justify-between">
@@ -155,10 +167,7 @@ export default function Config() {
             </div>
           ) : (
             <div>
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xl font-bold text-gray-900">Companhia</h2>
-                <SaveBtn />
-              </div>
+              <Head title="Companhia" save />
               <div className="space-y-5">
                 <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
                   <label className="block">
@@ -170,7 +179,6 @@ export default function Config() {
                     <span className="font-medium text-gray-700">Brasília (America/São_Paulo, -03:00)</span>
                   </div>
                 </section>
-
                 <DangerZone />
               </div>
             </div>

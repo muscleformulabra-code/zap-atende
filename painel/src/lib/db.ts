@@ -266,6 +266,41 @@ export async function listTags(): Promise<{ tag: string; count: number }[]> {
   }
 }
 
+// ── Catálogo de ETIQUETAS (tags table: nome + descrição + cor) ──
+export type Label = { id: string; name: string; description: string | null; color: string; created_at: string }
+
+export async function listLabels(): Promise<Label[]> {
+  try {
+    const c = await cid()
+    return await (await rest(`tags?company_id=eq.${c}&select=*&order=name.asc`)).json()
+  } catch {
+    return [] // tabela ainda não criada
+  }
+}
+
+export async function createLabel(name: string, description: string, color: string): Promise<void> {
+  const c = await cid()
+  await rest('tags?on_conflict=company_id,name', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ company_id: c, name: name.trim(), description: description?.trim() || null, color: color || 'gray' }),
+  })
+}
+
+export async function updateLabel(id: string, patch: { name?: string; description?: string; color?: string }): Promise<void> {
+  const c = await cid()
+  const body: Record<string, unknown> = {}
+  if (patch.name !== undefined) body.name = patch.name.trim()
+  if (patch.description !== undefined) body.description = patch.description?.trim() || null
+  if (patch.color !== undefined) body.color = patch.color
+  await rest(`tags?id=eq.${id}&company_id=eq.${c}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(body) })
+}
+
+export async function deleteLabel(id: string): Promise<void> {
+  const c = await cid()
+  await rest(`tags?id=eq.${id}&company_id=eq.${c}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } })
+}
+
 export async function countContacts(): Promise<number> {
   const c = await cid()
   return count(`contacts?company_id=eq.${c}&select=id`)
