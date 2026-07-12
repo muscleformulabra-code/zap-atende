@@ -62,7 +62,7 @@ export default function Inbox() {
   useEffect(() => {
     fetch('/api/quick-replies').then((r) => r.json()).then(setQuickReplies).catch(() => {})
     fetch('/api/flows').then((r) => r.json()).then(setFlows).catch(() => {})
-    fetch('/api/team').then((r) => r.json()).then(setTeam).catch(() => {})
+    fetch('/api/attendants').then((r) => r.json()).then((d) => setTeam(Array.isArray(d) ? d : [])).catch(() => {})
     fetch('/api/me').then((r) => r.json()).then((d) => setMyEmail(d.email ?? null)).catch(() => {})
   }, [])
 
