@@ -333,6 +333,14 @@ export default function Inbox() {
     try { mediaRecRef.current?.stop() } catch {}
   }
 
+  async function concluirTodas() {
+    const abertas = convs.filter((c) => c.status !== 'done').length
+    if (!abertas) return
+    if (!confirm(`Concluir todas as ${abertas} conversas abertas?\n\nElas somem das "Abertas" e vão pra "Concluídas". Dá pra reabrir depois. Se o paciente mandar mensagem de novo, a conversa reabre sozinha.`)) return
+    await fetch('/api/conclude-all', { method: 'POST' }).catch(() => {})
+    loadConvs()
+  }
+
   async function apagarMsg(m: Msg) {
     if (!m.from_me) return
     if (!confirm('Apagar para todos?\n\nSe a mensagem ainda estiver no prazo do WhatsApp (mensagens recentes), some pra você E pro paciente. Se for antiga, some só do seu inbox.')) return
@@ -418,6 +426,9 @@ export default function Inbox() {
               )}
             </div>
           </div>
+          {tab === 'abertas' && abertasCount > 0 && (
+            <button onClick={concluirTodas} className="mt-2 w-full rounded-lg border border-emerald-200 bg-emerald-50 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100">✓ Concluir todas as abertas ({abertasCount})</button>
+          )}
           {/* busca */}
           <div className="relative mt-2.5">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.3-4.3" /></svg>

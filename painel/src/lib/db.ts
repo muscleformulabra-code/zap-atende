@@ -173,6 +173,29 @@ export async function setStatus(contactId: string, status: string): Promise<void
   await setSessionStatus(contactId, status)
 }
 
+// Conclui TODAS as conversas abertas da empresa (úteis quando um número novo
+// sincroniza histórico antigo). Só mexe nas que não estão "done". Reversível.
+export async function concludeAllOpen(): Promise<number> {
+  const c = await cid()
+  const [contacts, doneRows] = await Promise.all([
+    (await rest(`contacts?company_id=eq.${c}&select=id&limit=100000`)).json() as Promise<{ id: string }[]>,
+    (await rest(`flow_sessions?company_id=eq.${c}&status=eq.done&select=contact_id&limit=100000`)).json() as Promise<{ contact_id: string }[]>,
+  ])
+  const done = new Set((doneRows || []).map((d) => d.contact_id))
+  const open = (contacts || []).filter((x) => !done.has(x.id))
+  if (!open.length) return 0
+  const now = new Date().toISOString()
+  const rows = open.map((x) => ({ contact_id: x.id, company_id: c, status: 'done', updated_at: now }))
+  for (let k = 0; k < rows.length; k += 500) {
+    await rest('flow_sessions?on_conflict=contact_id', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(rows.slice(k, k + 500)),
+    })
+  }
+  return rows.length
+}
+
 async function setSessionStatus(contactId: string, status: string): Promise<void> {
   const c = await cid()
   await rest('flow_sessions?on_conflict=contact_id', {
