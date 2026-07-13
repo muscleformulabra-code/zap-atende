@@ -475,7 +475,15 @@ http
         res.writeHead(200, { 'Content-Type': 'application/json' })
         return res.end(JSON.stringify({ companies: all }))
       }
-      const s = getSession(companyFromReq(req))
+      const cid = companyFromReq(req)
+      const s = getSession(cid)
+      // Auto-inicia a sessão de empresas ainda sem socket (ex.: empresa nova
+      // recém-criada) pra o QR ser gerado sozinho — sem precisar clicar em
+      // "Reiniciar conexão". Cooldown de 15s: se falhar, tenta de novo depois.
+      if (!s.sock && !s.resetting && Date.now() - (s.autoStartAt || 0) > 15000) {
+        s.autoStartAt = Date.now()
+        startSession(cid).catch((e) => console.error('auto-start:', e.message))
+      }
       const me = (s.sock?.user?.id || '').split(':')[0].split('@')[0] || null // número conectado
       res.writeHead(200, { 'Content-Type': 'application/json' })
       return res.end(JSON.stringify({ connected: !!s.sock, whatsapp: s.waConnected, me }))
