@@ -94,6 +94,10 @@ export default function AiAttendantPanel() {
         </div>
       </Section>
 
+      <Section title="Boas-vindas (pré-atendimento)" hint="A primeira mensagem que a Sofia usa ao receber o paciente. Ela adapta com naturalidade.">
+        <textarea value={c.welcomeMessage} onChange={(e) => up('welcomeMessage', e.target.value)} rows={3} placeholder="Ex.: Olá! Seja bem-vindo(a) à Ricco Odontologia…" className={`${input} resize-y`} />
+      </Section>
+
       <Section title="Clínica" hint="Informações que a IA usa como fonte da verdade.">
         <div className="space-y-3">
           <div><div className={label}>Nome da clínica</div><input value={c.clinic.name} onChange={(e) => up('clinic', { ...c.clinic, name: e.target.value })} className={`mt-1 ${input}`} /></div>

@@ -22,6 +22,7 @@ export type AiAttendant = {
   model: string
   temperature: number
   persona: { name: string; tone: string }
+  welcomeMessage: string // boas-vindas (pré-atendimento) — a IA abre com isso
   clinic: {
     name: string
     address: string
@@ -55,6 +56,8 @@ export function defaultRiccoOdonto(): AiAttendant {
       name: 'Sofia',
       tone: 'Acolhedora, humana e profissional. Premium mas natural, sem exageros. Tranquiliza quem tem medo ou dor. Trata por "você". No máximo 1 ou 2 emojis por mensagem.',
     },
+    welcomeMessage:
+      'Olá! 😊 Seja muito bem-vindo(a) à Ricco Odontologia Integrada! Eu sou a Sofia e vou te ajudar por aqui. Me conta: qual tratamento ou dúvida te trouxe até nós?',
     clinic: {
       name: 'Ricco Odontologia Integrada',
       address: 'QNA 16, Lote 14, 4º andar — Taguatinga Norte, Brasília-DF',
@@ -121,6 +124,7 @@ export function normalizeAi(raw: Partial<AiAttendant> | null | undefined): AiAtt
     model: r.model || d.model,
     temperature: typeof r.temperature === 'number' ? r.temperature : d.temperature,
     persona: { name: r.persona?.name || d.persona.name, tone: r.persona?.tone || d.persona.tone },
+    welcomeMessage: r.welcomeMessage ?? d.welcomeMessage,
     clinic: {
       name: r.clinic?.name || d.clinic.name,
       address: r.clinic?.address || d.clinic.address,
@@ -182,6 +186,7 @@ export function buildAiPrompt(c: AiAttendant): string {
 TOM DE VOZ: ${c.persona.tone}
 
 SEU OBJETIVO: acolher o paciente, tirar dúvidas SOMENTE sobre odontologia e sempre conduzir, com naturalidade, para o melhor caminho: ${c.clinic.freeEvaluation ? 'agendar a AVALIAÇÃO (a primeira é gratuita)' : 'agendar a AVALIAÇÃO'}.
+${c.welcomeMessage ? `\nBOAS-VINDAS (pré-atendimento): se for a PRIMEIRA mensagem do paciente na conversa, abra dando as boas-vindas com base nesta mensagem (pode adaptar ao que ele disse, sem repetir se a conversa já começou): "${c.welcomeMessage}"\n` : ''}
 
 REGRAS:
 - Fale só de assuntos da clínica/odontologia. Se fugir do tema, traga de volta com gentileza.
