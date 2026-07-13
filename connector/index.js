@@ -590,12 +590,13 @@ setInterval(async()=>{
           let content
           if (kind === 'image') content = { image: buffer, caption: caption || '' }
           else if (kind === 'video') content = { video: buffer, caption: caption || '' }
+          else if (kind === 'audio') content = { audio: buffer, mimetype: mimetype || 'audio/ogg; codecs=opus', ptt: true } // ptt = nota de voz
           else content = { document: buffer, mimetype, fileName: fileName || 'arquivo' }
           const sent = await s.sock.sendMessage(to, content)
-          const label = caption || (kind === 'image' ? '[imagem]' : kind === 'video' ? '[vídeo]' : `[${fileName || 'documento'}]`)
+          const label = caption || (kind === 'image' ? '[imagem]' : kind === 'video' ? '[vídeo]' : kind === 'audio' ? '[áudio]' : `[${fileName || 'documento'}]`)
           // Sobe a mídia enviada pro Storage pra ela aparecer no inbox também.
           let mediaUrl = null
-          const mediaType = kind === 'image' ? 'image' : kind === 'video' ? 'video' : 'document'
+          const mediaType = kind === 'image' ? 'image' : kind === 'video' ? 'video' : kind === 'audio' ? 'audio' : 'document'
           try { mediaUrl = await uploadMedia(buffer, fileName || `envio.${(mimetype.split('/')[1] || 'bin')}`, mimetype) } catch {}
           try {
             await insertMessage({ contactId, jid: to, fromMe: true, text: label, waMessageId: sent?.key?.id, sentAt: new Date().toISOString(), sentBy, companyId: company || SEED_COMPANY_ID, mediaUrl, mediaType })
