@@ -4,14 +4,36 @@ import { ALL_TRUE } from '@/lib/perms'
 import { membershipByEmail, membershipByEmailCompany } from '@/lib/company'
 import { SESSION_MAX_AGE } from '@/lib/session'
 
+// Extrai o e-mail de dentro do token de sessão (JWT do Supabase). Usado pra
+// "auto-curar" quando o cookie za_email sumiu mas a sessão continua válida
+// (ex.: um logout antigo que limpou o e-mail e deixou o token vivo).
+function emailFromToken(token?: string | null): string | null {
+  if (!token) return null
+  try {
+    const payload = token.split('.')[1]
+    const json = Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
+    const data = JSON.parse(json)
+    return data.email || data.user_metadata?.email || null
+  } catch {
+    return null
+  }
+}
+
 // Retorna quem é o atendente logado + sua empresa e permissões (lidas do
-// vínculo). Também "auto-cura" os cookies za_company/za_perms — assim quem já
-// estava logado antes do multi-empresa, e quem acabou de ser convidado, passa
-// a ter a empresa sem precisar deslogar.
+// vínculo). Também "auto-cura" os cookies za_email/za_company/za_perms — assim
+// quem perdeu o cookie de e-mail (ou acabou de ser convidado) volta ao normal
+// sem precisar deslogar.
 export async function GET() {
   const jar = await cookies()
-  const email = jar.get('za_email')?.value ?? null
+  let email = jar.get('za_email')?.value ?? null
   const activeCompany = jar.get('za_company')?.value ?? null
+
+  // Sessão viva mas sem cookie de e-mail → recupera do próprio token.
+  let recoveredEmail = false
+  if (!email) {
+    email = emailFromToken(jar.get('za_token')?.value)
+    recoveredEmail = !!email
+  }
 
   // Respeita a empresa ATIVA (cookie za_company) quando o usuário é membro dela
   // — assim a troca de empresa "gruda". Só cai no vínculo mais antigo se o
@@ -39,6 +61,7 @@ export async function GET() {
   })
 
   const opts = { path: '/', maxAge: SESSION_MAX_AGE, sameSite: 'lax' as const, httpOnly: true }
+  if (recoveredEmail && email) res.cookies.set('za_email', email, opts)
   if (membership) {
     res.cookies.set('za_company', membership.company_id, opts)
     res.cookies.set('za_perms', membership.perms ? JSON.stringify(membership.perms) : '', opts)
