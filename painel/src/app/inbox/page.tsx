@@ -86,7 +86,6 @@ export default function Inbox() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [note, setNote] = useState('')
   const [noteSaved, setNoteSaved] = useState(false)
-  const [fichaFlow, setFichaFlow] = useState(false)
   const [flowSearch, setFlowSearch] = useState('')
   const [recording, setRecording] = useState(false)
   const [recSeconds, setRecSeconds] = useState(0)
@@ -213,7 +212,20 @@ export default function Inbox() {
   }
 
   // Sincroniza a observação quando troca de contato (ou quando a ficha carrega).
-  useEffect(() => { setNote(card?.note ?? ''); setNoteSaved(false); setEditName(false); setFichaFlow(false) }, [sel?.contact_id, card?.note])
+  useEffect(() => { setNote(card?.note ?? ''); setNoteSaved(false); setEditName(false) }, [sel?.contact_id, card?.note])
+
+  // Auto-salva a Observação enquanto digita (debounce 700ms) — além do onBlur.
+  useEffect(() => {
+    if (!sel) return
+    if (note === (card?.note ?? '')) return // nada mudou desde o carregado
+    const t = setTimeout(() => {
+      fetch('/api/contact', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contactId: sel.contact_id, note }) })
+        .then(() => { setNoteSaved(true); setTimeout(() => setNoteSaved(false), 1500) })
+        .catch(() => {})
+    }, 700)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note])
 
   async function salvarNome() {
     const novo = nameVal.trim()
@@ -580,25 +592,8 @@ export default function Inbox() {
       {/* FICHA DO LEAD (padrão BotConversa) */}
       {sel && (
         <aside className="w-80 shrink-0 overflow-y-auto border-l border-gray-200 bg-white">
-          {/* nome (editável) + enviar fluxo + avatar */}
+          {/* nome (editável) + avatar */}
           <div className="relative flex flex-col items-center px-4 pb-3 pt-5">
-            {/* Enviar fluxo (canto superior direito) */}
-            <div className="absolute right-3 top-3">
-              <button onClick={() => setFichaFlow((v) => !v)} title="Enviar fluxo" className="flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50">📄 Fluxo</button>
-              {fichaFlow && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setFichaFlow(false)} />
-                  <div className="absolute right-0 z-20 mt-1 max-h-64 w-56 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-xl">
-                    <div className="border-b border-gray-100 px-3 py-2 text-xs font-semibold text-gray-500">Enviar fluxo</div>
-                    {flows.map((f) => (
-                      <button key={f.id} onClick={() => { enviarFluxo(f); setFichaFlow(false) }} className="block w-full border-b border-gray-50 px-3 py-2 text-left text-sm text-gray-700 last:border-0 hover:bg-emerald-50">{f.name}</button>
-                    ))}
-                    {flows.length === 0 && <div className="px-3 py-3 text-xs text-gray-400">nenhum fluxo</div>}
-                  </div>
-                </>
-              )}
-            </div>
-
             {editName ? (
               <div className="mb-3 w-full px-2">
                 <input value={nameVal} onChange={(e) => setNameVal(e.target.value.slice(0, 50))} autoFocus onKeyDown={(e) => { if (e.key === 'Enter') salvarNome() }} className="w-full rounded-lg border border-gray-300 p-2 text-center text-sm outline-none focus:border-emerald-500" />
@@ -685,7 +680,7 @@ export default function Inbox() {
               {noteSaved && <span className="text-xs font-medium text-emerald-600">✓ salvo</span>}
             </div>
             <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 2000))} onBlur={salvarNota} rows={4} placeholder="Deixe uma nota sobre este contato…" className="w-full resize-none rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-sm outline-none focus:border-amber-400" />
-            <div className="mt-1 text-right text-[11px] text-gray-400">{note.length}/2000 · salva ao sair do campo</div>
+            <div className="mt-1 text-right text-[11px] text-gray-400">{note.length}/2000 · {noteSaved ? '✓ salvo' : 'salva automaticamente'}</div>
           </div>
         </aside>
       )}
