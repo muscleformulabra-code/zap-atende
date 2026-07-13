@@ -7,7 +7,7 @@ export const sampleFlow: Flow = {
   nodes: {
     boas_vindas: {
       type: 'message',
-      text: 'Olá! 👋 Seja bem-vindo(a) ao *Centro Médico da Família*.\nSomos um centro integrado de saúde, odontologia e bem-estar.',
+      text: 'Olá! 👋 Seja bem-vindo(a)!\nQue bom ter você por aqui. Vou te ajudar no que precisar.',
       delayMs: 1500,
       next: 'menu_principal',
     },
@@ -15,25 +15,25 @@ export const sampleFlow: Flow = {
       type: 'menu',
       text: 'Como podemos te ajudar hoje?',
       options: [
-        { label: 'Consultas Médicas', next: 'consultas' },
-        { label: 'Orçamento de Exames', next: 'exames' },
+        { label: 'Agendar atendimento', next: 'consultas' },
+        { label: 'Tirar uma dúvida', next: 'exames' },
         { label: 'Localização / Endereço', next: 'localizacao' },
         { label: 'Falar com um atendente', next: 'handoff' },
       ],
     },
     consultas: {
       type: 'message',
-      text: 'Ótimo! 😊 Temos várias especialidades disponíveis. Vou te encaminhar para um atendente confirmar o melhor horário pra você.',
+      text: 'Ótimo! 😊 Vou te encaminhar para um atendente confirmar o melhor horário pra você.',
       next: 'handoff',
     },
     exames: {
       type: 'message',
-      text: 'Perfeito! Para o orçamento, me envie a *lista de exames* (foto do pedido médico serve). Já já um atendente te retorna com os valores.',
+      text: 'Perfeito! Me conta um pouco mais sobre o que você precisa que já te ajudo por aqui.',
       next: 'handoff',
     },
     localizacao: {
       type: 'message',
-      text: '📍 Estamos na QNA 16, Lote 14, 4º andar — Av. Comercial Norte, Taguatinga Norte - DF.\nHorário: seg a sex, 8h às 18h.',
+      text: '📍 Peça nosso endereço e horário a um atendente. Já te encaminho!',
       next: 'menu_principal',
     },
     handoff: {
