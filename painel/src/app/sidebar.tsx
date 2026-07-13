@@ -41,6 +41,14 @@ export default function Sidebar() {
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [switcher, setSwitcher] = useState(false)
   const [busca, setBusca] = useState('')
+  const [collapsed, setCollapsed] = useState(false)
+
+  // Lembra se a barra estava recolhida (por navegador).
+  useEffect(() => { try { setCollapsed(localStorage.getItem('za_sidebar_collapsed') === '1') } catch {} }, [])
+  function toggleCollapsed() {
+    setCollapsed((c) => { const v = !c; try { localStorage.setItem('za_sidebar_collapsed', v ? '1' : '0') } catch {}; return v })
+    setSwitcher(false)
+  }
 
   // Telas de autenticação (sem sidebar).
   const AUTH = p === '/login' || p === '/cadastro' || p === '/aguardando'
@@ -85,86 +93,86 @@ export default function Sidebar() {
 
   const active = permForPath(p)
 
+  // Um item de navegação (usado tanto pelos itens com permissão quanto pelos
+  // fixos Campanhas/Assistente). Em modo recolhido mostra só o ícone.
+  const NavItem = ({ href, icon, label, isActive }: { href: string; icon: ReactNode; label: string; isActive: boolean }) => (
+    <a
+      href={href}
+      title={collapsed ? label : undefined}
+      className={`group flex items-center rounded-xl text-[14px] font-semibold transition-all ${collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'} ${
+        isActive ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-200' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+      }`}
+    >
+      <span className={isActive ? 'text-white' : 'text-gray-400 group-hover:text-emerald-500'}>{icon}</span>
+      {!collapsed && <span className="truncate">{label}</span>}
+    </a>
+  )
+
   return (
-    <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-gray-200/80 bg-white">
-      {/* LOGO */}
-      <div className="flex items-center gap-2.5 px-5 pb-4 pt-5">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/ricco-icon.png" alt="Ricco Chat" className="h-11 w-11 shrink-0 object-contain" />
-        <div className="leading-tight">
-          <span className="block text-[17px] font-extrabold tracking-tight text-gray-900">Ricco Chat</span>
-          <span className="block text-[11px] font-medium text-gray-400">Atendimento inteligente</span>
+    <aside className={`flex h-screen shrink-0 flex-col border-r border-gray-200/80 bg-white transition-[width] duration-200 ${collapsed ? 'w-[76px]' : 'w-64'}`}>
+      {/* LOGO + botão recolher/expandir */}
+      <div className={`px-3 pb-4 pt-5 ${collapsed ? 'flex flex-col items-center gap-2' : 'flex items-center justify-between pl-4'}`}>
+        <div className="flex items-center gap-2.5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/ricco-icon.png" alt="Ricco Chat" className="h-10 w-10 shrink-0 object-contain" />
+          {!collapsed && (
+            <div className="leading-tight">
+              <span className="block text-[17px] font-extrabold tracking-tight text-gray-900">Ricco Chat</span>
+              <span className="block text-[11px] font-medium text-gray-400">Atendimento inteligente</span>
+            </div>
+          )}
         </div>
+        <button onClick={toggleCollapsed} title={collapsed ? 'Expandir menu' : 'Recolher menu'} className="rounded-lg border border-gray-200 p-1.5 text-gray-400 transition hover:bg-gray-50 hover:text-gray-600">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="h-[18px] w-[18px]">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <line x1="9" y1="3" x2="9" y2="21" />
+            <path d={collapsed ? 'M13 9l3 3-3 3' : 'M16 9l-3 3 3 3'} />
+          </svg>
+        </button>
       </div>
 
       {/* NAV agrupada */}
-      <nav className="flex-1 overflow-y-auto px-3 py-2">
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-2">
         {GROUPS.map((g, gi) => {
           const keys = g.keys.filter((k) => perms[k])
-          if (keys.length === 0) return null
+          const isAtendimento = g.title === 'Atendimento'
+          if (keys.length === 0 && !isAtendimento) return null
           return (
             <div key={gi} className={gi > 0 ? 'mt-5' : ''}>
-              {g.title && <div className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-300">{g.title}</div>}
+              {g.title && !collapsed && <div className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-300">{g.title}</div>}
+              {g.title && collapsed && gi > 0 && <div className="mx-3 mb-2 border-t border-gray-100" />}
               <div className="space-y-1">
-                {keys.map((k) => {
-                  const isActive = active === k
-                  return (
-                    <a
-                      key={k}
-                      href={hrefFor(k)}
-                      className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] font-semibold transition-all ${
-                        isActive
-                          ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-200'
-                          : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
-                      }`}
-                    >
-                      <span className={isActive ? 'text-white' : 'text-gray-400 group-hover:text-emerald-500'}>{ICONS[k]}</span>
-                      {labelFor(k)}
-                    </a>
-                  )
-                })}
+                {keys.map((k) => (
+                  <NavItem key={k} href={hrefFor(k)} icon={ICONS[k]} label={labelFor(k)} isActive={active === k} />
+                ))}
+                {/* Campanhas fica na seção Atendimento, abaixo de Fluxos */}
+                {isAtendimento && (
+                  <NavItem
+                    href="/campanhas"
+                    icon={<Icon d="M3 11l18-5v12L3 14v-3zM11.6 16.8a3 3 0 0 1-5.8-1.6" />}
+                    label="Campanhas"
+                    isActive={p.startsWith('/campanhas')}
+                  />
+                )}
               </div>
             </div>
           )
         })}
 
-        {/* Campanhas (tráfego pago) — sempre visível */}
-        <div className="mt-3">
-          <a
-            href="/campanhas"
-            className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] font-semibold transition-all ${
-              p.startsWith('/campanhas')
-                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-200'
-                : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
-            }`}
-          >
-            <span className={p.startsWith('/campanhas') ? 'text-white' : 'text-gray-400 group-hover:text-emerald-500'}>
-              <Icon d="M3 11l18-5v12L3 14v-3zM11.6 16.8a3 3 0 0 1-5.8-1.6" />
-            </span>
-            Campanhas
-          </a>
-        </div>
-
         {/* Assistente de Leads (IA) — sempre visível */}
         <div className="mt-5">
-          <div className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-300">Inteligência</div>
-          <a
+          {!collapsed && <div className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-300">Inteligência</div>}
+          {collapsed && <div className="mx-3 mb-2 border-t border-gray-100" />}
+          <NavItem
             href="/assistente"
-            className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] font-semibold transition-all ${
-              p === '/assistente'
-                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-200'
-                : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
-            }`}
-          >
-            <span className={p === '/assistente' ? 'text-white' : 'text-gray-400 group-hover:text-emerald-500'}>
-              <Icon d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.5.5 1 1.5 1 2.5h6c0-1 .5-2 1-2.5A6 6 0 0 0 12 3z" />
-            </span>
-            Assistente de Leads
-          </a>
+            icon={<Icon d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.5.5 1 1.5 1 2.5h6c0-1 .5-2 1-2.5A6 6 0 0 0 12 3z" />}
+            label="Assistente de Leads"
+            isActive={p === '/assistente'}
+          />
         </div>
       </nav>
 
-      {/* RODAPÉ: seletor de empresa + conexão + usuário + sair */}
+      {/* RODAPÉ: seletor de empresa + conexão */}
       <div className="space-y-2 border-t border-gray-100 px-3 py-3">
         {/* SELETOR DE EMPRESA (igual BotConversa) */}
         {companyId && (
@@ -172,7 +180,7 @@ export default function Sidebar() {
             {switcher && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setSwitcher(false)} />
-                <div className="absolute bottom-full left-0 z-20 mb-2 w-full overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+                <div className="absolute bottom-full left-0 z-20 mb-2 w-60 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
                   <div className="border-b border-gray-100 p-2">
                     <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar empresa…" className="w-full rounded-lg bg-gray-50 px-3 py-2 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-emerald-100" autoFocus />
                   </div>
@@ -201,27 +209,33 @@ export default function Sidebar() {
                 </div>
               </>
             )}
-            <button onClick={() => { setSwitcher((s) => !s); setBusca('') }} className="flex w-full items-center gap-2.5 rounded-xl border border-gray-200 px-2.5 py-2 text-left transition hover:bg-gray-50">
+            <button onClick={() => { setSwitcher((s) => !s); setBusca('') }} title={collapsed ? (empresaAtual?.name || 'Trocar empresa') : undefined} className={`flex w-full items-center rounded-xl border border-gray-200 transition hover:bg-gray-50 ${collapsed ? 'justify-center p-1.5' : 'gap-2.5 px-2.5 py-2 text-left'}`}>
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-teal-500 text-[11px] font-bold text-white">
                 {(empresaAtual?.name || 'E1').slice(0, 2).toUpperCase()}
               </span>
-              <span className="min-w-0 flex-1 leading-tight">
-                <span className="block truncate text-xs font-bold text-gray-800">{empresaAtual?.name || 'Minha empresa'}</span>
-                <span className="block text-[10px] font-medium uppercase tracking-wide text-gray-400">trocar empresa</span>
-              </span>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4 shrink-0 text-gray-400"><path d="M8 9l4-4 4 4M8 15l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              {!collapsed && (
+                <>
+                  <span className="min-w-0 flex-1 leading-tight">
+                    <span className="block truncate text-xs font-bold text-gray-800">{empresaAtual?.name || 'Minha empresa'}</span>
+                    <span className="block text-[10px] font-medium uppercase tracking-wide text-gray-400">trocar empresa</span>
+                  </span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4 shrink-0 text-gray-400"><path d="M8 9l4-4 4 4M8 15l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </>
+              )}
             </button>
           </div>
         )}
 
-        <div className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2">
+        <div className={`flex items-center rounded-xl bg-gray-50 ${collapsed ? 'justify-center py-2' : 'gap-2 px-3 py-2'}`} title={collapsed ? (online == null ? 'Verificando…' : online ? 'WhatsApp conectado' : 'WhatsApp desconectado') : undefined}>
           <span className="relative flex h-2.5 w-2.5">
             {online && <span className="za-pulse absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />}
             <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${online == null ? 'bg-gray-300' : online ? 'bg-emerald-500' : 'bg-red-400'}`} />
           </span>
-          <span className="text-xs font-medium text-gray-500">
-            {online == null ? 'Verificando…' : online ? 'WhatsApp conectado' : 'WhatsApp desconectado'}
-          </span>
+          {!collapsed && (
+            <span className="text-xs font-medium text-gray-500">
+              {online == null ? 'Verificando…' : online ? 'WhatsApp conectado' : 'WhatsApp desconectado'}
+            </span>
+          )}
         </div>
 
       </div>
