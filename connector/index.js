@@ -377,6 +377,7 @@ async function startSession(companyId) {
                 defaultFlowId: settings?.default_flow_id ?? null,
                 mediaFlowId: settings?.media_flow_id ?? null,
                 companyId,
+                aiEnabled: settings?.ai_attendant?.enabled === true,
               })
               await applyTagOps(contact.id, tagOps).catch(() => {})
               s.diag.botPath = 'fluxo'

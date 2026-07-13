@@ -73,6 +73,21 @@ async function callBot(state, input, startFlowId = null, companyId = null) {
   return res.json() // { replies: [{text}], state }
 }
 
+// Chama a IA (Sofia) no painel. Devolve { enabled, message, handoff, reason }.
+async function callAiReply(contactId, companyId) {
+  try {
+    const res = await fetch(`${PAINEL_URL}/api/ai-reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contactId, company: companyId }),
+    })
+    if (!res.ok) return null
+    return await res.json()
+  } catch {
+    return null
+  }
+}
+
 // Processa uma mensagem recebida e devolve as respostas do bot.
 // Regras (iguais ao BotConversa):
 //  - Sem sessão OU voltou depois de MUITO tempo (reengageHours) → fluxo de
@@ -112,7 +127,7 @@ async function bumpCampaign(id) {
 }
 
 async function handleIncoming(contactId, text, opts = {}) {
-  const { reengageHours = 12, isMedia = false, defaultFlowId = null, mediaFlowId = null, companyId = null } =
+  const { reengageHours = 12, isMedia = false, defaultFlowId = null, mediaFlowId = null, companyId = null, aiEnabled = false } =
     typeof opts === 'number' ? { reengageHours: opts } : opts
 
   // CAMPANHA (tráfego pago): se a mensagem é a frase exata de uma campanha,
@@ -126,6 +141,25 @@ async function handleIncoming(contactId, text, opts = {}) {
   }
 
   const session = await getSession(contactId)
+
+  // ── MODO IA (ex.: Ricco Odonto): a Sofia responde de ponta a ponta. ──
+  // Só para quando o atendente humano já assumiu (handoff). Se a IA decidir
+  // passar pro humano (dados de agendamento ou assunto sensível), marca handoff.
+  if (aiEnabled) {
+    if (session && session.status === 'handoff') {
+      await saveSession(contactId, { flowId: session.flowId || null, currentNode: session.currentNode || 'ai', status: 'handoff' }, companyId)
+      return { replies: [] } // humano no comando → bot quieto
+    }
+    const ai = await callAiReply(contactId, companyId)
+    if (ai && ai.enabled) {
+      await saveSession(contactId, { flowId: null, currentNode: 'ai', status: ai.handoff ? 'handoff' : 'active' }, companyId)
+      return { replies: ai.message ? [{ text: ai.message }] : [] }
+    }
+    // IA indisponível → passa pro humano (não deixa o paciente sem resposta).
+    await saveSession(contactId, { flowId: null, currentNode: 'ai', status: 'handoff' }, companyId)
+    return { replies: [] }
+  }
+
   const age = session && session.updatedAt ? Date.now() - Date.parse(session.updatedAt) : Infinity
   const stale = age > reengageHours * 3600 * 1000
 
