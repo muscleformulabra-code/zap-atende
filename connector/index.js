@@ -28,6 +28,13 @@ const { handleIncoming, getSettings } = require('./bot')
 const SEED_COMPANY_ID = '00000000-0000-0000-0000-000000000001'
 const AUTH_ROOT = path.join(__dirname, 'auth')
 
+// Ligações (voz/vídeo): o atendimento é só por mensagem. O robô recusa a
+// chamada e manda um aviso. Texto padrão (a empresa pode sobrescrever via
+// settings.call_reject_message).
+const DEFAULT_CALL_MSG =
+  'Olá! 👋 Vi que você tentou ligar. Aqui neste número a gente atende *somente por mensagem* — não conseguimos atender chamadas. 😊\nPode me mandar sua dúvida por escrito que já te respondo por aqui!'
+const CALL_REPLY_COOLDOWN_MS = 10 * 60 * 1000 // no máx. 1 aviso a cada 10 min por contato
+
 // Uma sessão por empresa. companyId -> { sock, waConnected, resetting, reconnecting, diag, qr }
 const sessions = new Map()
 
@@ -370,6 +377,49 @@ async function startSession(companyId) {
       } catch (err) {
         s.diag.lastError = err?.message || String(err)
         console.error('Erro ao salvar mensagem:', err.message)
+      }
+    }
+  })
+
+  // ── Ligações recebidas: recusa + avisa por mensagem ──
+  // O paciente costuma ligar insistentemente; aqui o robô recusa a chamada (para
+  // de tocar) e manda um texto explicando que o atendimento é só por mensagem.
+  if (!s.handledCalls) s.handledCalls = new Set()      // callIds já tratados (o WhatsApp dispara o mesmo 'offer' várias vezes)
+  if (!s.lastCallReplyAt) s.lastCallReplyAt = new Map() // jid -> ts do último aviso (anti-spam)
+  sock.ev.on('call', async (calls) => {
+    for (const call of calls || []) {
+      try {
+        if (call.status !== 'offer') continue // só o início da chamada
+        const fromJid = call.from
+        if (!fromJid || fromJid.endsWith('@g.us') || call.isGroup) continue
+        if (s.handledCalls.has(call.id)) continue
+        s.handledCalls.add(call.id)
+        if (s.handledCalls.size > 1000) s.handledCalls.clear()
+
+        // 1) recusa a chamada (para de tocar do lado do paciente)
+        try { await sock.rejectCall(call.id, call.from) } catch (e) { s.diag.lastCallError = 'reject: ' + (e?.message || e) }
+
+        // 2) anti-spam: no máx. 1 aviso a cada 10 min por contato
+        const now = Date.now()
+        if (now - (s.lastCallReplyAt.get(fromJid) || 0) < CALL_REPLY_COOLDOWN_MS) continue
+        s.lastCallReplyAt.set(fromJid, now)
+
+        // 3) manda o aviso (texto configurável por empresa)
+        const settings = await getSettings(companyId).catch(() => null)
+        if (settings && settings.call_reject_enabled === false) continue // empresa desligou o recurso
+        const msgText = (settings?.call_reject_message && String(settings.call_reject_message).trim()) || DEFAULT_CALL_MSG
+        const sent = await sock.sendMessage(fromJid, { text: msgText })
+
+        // 4) registra no inbox pra o atendente ver
+        const phone = fromJid.includes('@s.whatsapp.net') ? fromJid.split('@')[0] : null
+        const contact = await upsertContact({ jid: fromJid, phone, name: null, companyId }).catch(() => null)
+        if (contact) {
+          await insertMessage({ contactId: contact.id, jid: fromJid, fromMe: true, text: msgText, waMessageId: sent?.key?.id, sentAt: new Date().toISOString(), companyId }).catch(() => {})
+        }
+        console.log(`📵 [${companyId.slice(0, 8)}] recusou ${call.isVideo ? 'vídeo' : 'ligação'} de ${phone || fromJid} + avisou`)
+      } catch (e) {
+        s.diag.lastCallError = e?.message || String(e)
+        console.error('Erro ao tratar ligação:', e?.message || e)
       }
     }
   })
