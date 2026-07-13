@@ -6,6 +6,7 @@ import LabelsPanel from './labels-panel'
 import QuickRepliesPanel from './quick-replies-panel'
 import FlowDefaultsPanel from './flow-defaults-panel'
 import IntegrationsPanel from './integrations-panel'
+import AiAttendantPanel from './ai-attendant-panel'
 
 type Settings = {
   bot_enabled: boolean
@@ -19,10 +20,11 @@ type Settings = {
 const CALL_MSG_PADRAO =
   'Olá! 👋 Vi que você tentou ligar. Aqui neste número a gente atende *somente por mensagem* — não conseguimos atender chamadas. 😊\nPode me mandar sua dúvida por escrito que já te respondo por aqui!'
 
-type Tab = 'conexao' | 'fluxos' | 'etiquetas' | 'respostas' | 'equipe' | 'integracoes' | 'robo' | 'companhia'
+type Tab = 'conexao' | 'fluxos' | 'ia' | 'etiquetas' | 'respostas' | 'equipe' | 'integracoes' | 'robo' | 'companhia'
 const MENU: { k: Tab; label: string }[] = [
   { k: 'conexao', label: 'Conexão' },
   { k: 'fluxos', label: 'Fluxos Padrões' },
+  { k: 'ia', label: '🤖 Atendente IA' },
   { k: 'etiquetas', label: 'Etiquetas' },
   { k: 'respostas', label: 'Respostas rápidas' },
   { k: 'equipe', label: 'Equipe' },
@@ -80,6 +82,8 @@ export default function Config() {
             <div><Head title="Conexão" /><WhatsAppConnection companyName={s?.company_name} /></div>
           ) : tab === 'fluxos' ? (
             <div><Head title="Fluxos Padrões" /><FlowDefaultsPanel /></div>
+          ) : tab === 'ia' ? (
+            <div><Head title="🤖 Atendente IA (Sofia)" /><AiAttendantPanel /></div>
           ) : tab === 'etiquetas' ? (
             <div><Head title="Etiquetas" /><LabelsPanel /></div>
           ) : tab === 'respostas' ? (

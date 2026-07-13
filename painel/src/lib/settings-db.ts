@@ -1,6 +1,7 @@
 // Configurações da plataforma (uma linha POR EMPRESA) via Supabase REST.
 
 import { currentCompanyId, SEED_COMPANY_ID } from './company'
+import { normalizeAi, type AiAttendant } from './ai-attendant'
 
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY
@@ -117,6 +118,29 @@ export async function openAIStatus(companyId?: string): Promise<{ configured: bo
     preview: key ? `sk-…${key.slice(-4)}` : null,
     fromEnv: !companyKey && !!envKey,
   }
+}
+
+// ── Atendente IA (Sofia) — config estruturada por empresa ──
+export async function getAiAttendant(companyId?: string): Promise<AiAttendant> {
+  const c = await cid(companyId)
+  try {
+    const res = await fetch(`${REST}/settings?company_id=eq.${c}&select=ai_attendant&limit=1`, { headers: H, cache: 'no-store' })
+    if (res.ok) return normalizeAi((await res.json())[0]?.ai_attendant)
+  } catch {
+    /* coluna pode não existir ainda */
+  }
+  return normalizeAi(null)
+}
+
+export async function saveAiAttendant(companyId: string, config: AiAttendant): Promise<void> {
+  const c = await cid(companyId)
+  // upsert: cria a linha de settings se a empresa ainda não tiver.
+  await fetch(`${REST}/settings?on_conflict=company_id`, {
+    method: 'POST',
+    headers: { ...H, Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ company_id: c, ai_attendant: config }),
+    cache: 'no-store',
+  })
 }
 
 export async function saveSettings(patch: Partial<Settings>): Promise<void> {

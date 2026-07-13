@@ -4,7 +4,7 @@ import { PERM_LIST, permForPath, permsFromCookie, secondsUntilExpiry } from './l
 
 // Rotas abertas (sem login): login, cadastro público, APIs de auth, e as APIs
 // que o CONECTOR (servidor externo) chama sem cookie.
-const OPEN = ['/login', '/cadastro', '/api/login', '/api/signup', '/api/logout', '/api/simulate', '/api/settings']
+const OPEN = ['/login', '/cadastro', '/api/login', '/api/signup', '/api/logout', '/api/simulate', '/api/settings', '/api/ai-reply']
 
 // Rotas liberadas pra quem está logado mas AINDA não tem empresa (aguardando
 // convite): a tela de espera, o perfil e as APIs que elas usam.
