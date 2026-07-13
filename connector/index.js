@@ -20,6 +20,24 @@ const path = require('path')
 const http = require('http')
 const fs = require('fs')
 const pino = require('pino')
+const { spawn } = require('child_process')
+const ffmpegPath = require('ffmpeg-static')
+
+// Converte o áudio gravado no navegador (webm/opus) pra OGG/Opus — formato de
+// NOTA DE VOZ do WhatsApp. Sem isso o áudio não toca no celular do paciente.
+function transcodeToOggOpus(inputBuffer) {
+  return new Promise((resolve, reject) => {
+    const ff = spawn(ffmpegPath, ['-i', 'pipe:0', '-c:a', 'libopus', '-b:a', '32k', '-ac', '1', '-f', 'ogg', 'pipe:1'])
+    const out = []
+    ff.stdout.on('data', (d) => out.push(d))
+    ff.stderr.on('data', () => {}) // silencia log do ffmpeg
+    ff.on('error', reject)
+    ff.on('close', (code) => (code === 0 && out.length ? resolve(Buffer.concat(out)) : reject(new Error('ffmpeg saiu ' + code))))
+    ff.stdin.on('error', () => {})
+    ff.stdin.write(inputBuffer)
+    ff.stdin.end()
+  })
+}
 
 const { upsertContact, insertMessage, updateAvatar, setSessionDone, applyTagOps, uploadMedia, keyInfo } = require('./supabase')
 const BAILEYS_VERSION = (() => { try { return require('@whiskeysockets/baileys/package.json').version } catch { return '?' } })()
@@ -583,21 +601,26 @@ setInterval(async()=>{
           if (!to || !dataUrl) throw new Error('to e dataUrl obrigatórios')
           const s = getSession(company || SEED_COMPANY_ID)
           if (!s.sock || !s.waConnected) throw new Error('WhatsApp desconectado — reconecte escaneando o QR')
-          const m = /^data:([^;]+);base64,(.*)$/s.exec(dataUrl)
+          // regex tolerante a mimetypes com parâmetros (ex.: audio/webm;codecs=opus)
+          const m = /^data:(.*?);base64,(.*)$/s.exec(dataUrl)
           if (!m) throw new Error('dataUrl inválido')
-          const mimetype = m[1]
-          const buffer = Buffer.from(m[2], 'base64')
+          let mimetype = m[1] || 'application/octet-stream'
+          let buffer = Buffer.from(m[2], 'base64')
           let content
           if (kind === 'image') content = { image: buffer, caption: caption || '' }
           else if (kind === 'video') content = { video: buffer, caption: caption || '' }
-          else if (kind === 'audio') content = { audio: buffer, mimetype: mimetype || 'audio/ogg; codecs=opus', ptt: true } // ptt = nota de voz
+          else if (kind === 'audio') {
+            // Converte pra OGG/Opus (nota de voz do WhatsApp). Se falhar, envia como veio.
+            try { buffer = await transcodeToOggOpus(buffer); mimetype = 'audio/ogg; codecs=opus' } catch (e) { console.error('transcode áudio:', e.message) }
+            content = { audio: buffer, mimetype, ptt: true } // ptt = nota de voz
+          }
           else content = { document: buffer, mimetype, fileName: fileName || 'arquivo' }
           const sent = await s.sock.sendMessage(to, content)
           const label = caption || (kind === 'image' ? '[imagem]' : kind === 'video' ? '[vídeo]' : kind === 'audio' ? '[áudio]' : `[${fileName || 'documento'}]`)
           // Sobe a mídia enviada pro Storage pra ela aparecer no inbox também.
           let mediaUrl = null
           const mediaType = kind === 'image' ? 'image' : kind === 'video' ? 'video' : kind === 'audio' ? 'audio' : 'document'
-          try { mediaUrl = await uploadMedia(buffer, fileName || `envio.${(mimetype.split('/')[1] || 'bin')}`, mimetype) } catch {}
+          try { mediaUrl = await uploadMedia(buffer, kind === 'audio' ? 'audio.ogg' : (fileName || `envio.${(mimetype.split('/')[1] || 'bin')}`), kind === 'audio' ? 'audio/ogg' : mimetype) } catch {}
           try {
             await insertMessage({ contactId, jid: to, fromMe: true, text: label, waMessageId: sent?.key?.id, sentAt: new Date().toISOString(), sentBy, companyId: company || SEED_COMPANY_ID, mediaUrl, mediaType })
           } catch {}
