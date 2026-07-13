@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react'
 const TITLES: Record<string, string> = {
   '/': 'Painel de controle',
   '/inbox': 'Inbox',
+  '/pendencias': 'Pendências',
   '/contatos': 'Contatos',
   '/fluxos': 'Fluxos',
   '/respostas': 'Respostas rápidas',

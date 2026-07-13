@@ -16,6 +16,7 @@ function Icon({ d, ...p }: { d: string } & SVGProps<SVGSVGElement>) {
 const ICONS: Record<PermKey, ReactNode> = {
   painel: <Icon d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" />,
   inbox: <Icon d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />,
+  pendencias: <Icon d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0" />,
   contatos: <Icon d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />,
   fluxos: <Icon d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM15 6a9 9 0 0 1-9 9" />,
   respostas: <Icon d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />,
@@ -26,7 +27,7 @@ const ICONS: Record<PermKey, ReactNode> = {
 // Agrupa os itens em seções (só aparece a seção que tiver item permitido).
 const GROUPS: { title: string | null; keys: PermKey[] }[] = [
   { title: null, keys: ['painel'] },
-  { title: 'Atendimento', keys: ['inbox', 'contatos', 'fluxos'] }, // Respostas agora só em Configurações
+  { title: 'Atendimento', keys: ['inbox', 'pendencias', 'contatos', 'fluxos'] }, // Respostas agora só em Configurações
   { title: 'Sistema', keys: ['config'] }, // Equipe agora fica dentro de Configurações
 ]
 
@@ -42,6 +43,7 @@ export default function Sidebar() {
   const [switcher, setSwitcher] = useState(false)
   const [busca, setBusca] = useState('')
   const [collapsed, setCollapsed] = useState(false)
+  const [pendCount, setPendCount] = useState(0)
 
   // Lembra se a barra estava recolhida (por navegador).
   useEffect(() => { try { setCollapsed(localStorage.getItem('za_sidebar_collapsed') === '1') } catch {} }, [])
@@ -89,22 +91,39 @@ export default function Sidebar() {
     return () => { alive = false; clearInterval(t) }
   }, [p, AUTH])
 
+  // Contador de pendências (leads aguardando resposta) — pro badge da aba.
+  useEffect(() => {
+    if (AUTH || !perms.pendencias) return
+    let alive = true
+    const poll = () => fetch('/api/pendencias?count=1').then((r) => r.json()).then((d) => alive && setPendCount(d.count || 0)).catch(() => {})
+    poll()
+    const t = setInterval(poll, 20000)
+    return () => { alive = false; clearInterval(t) }
+  }, [p, AUTH, perms.pendencias])
+
   if (AUTH) return null
 
   const active = permForPath(p)
 
   // Um item de navegação (usado tanto pelos itens com permissão quanto pelos
   // fixos Campanhas/Assistente). Em modo recolhido mostra só o ícone.
-  const NavItem = ({ href, icon, label, isActive }: { href: string; icon: ReactNode; label: string; isActive: boolean }) => (
+  const NavItem = ({ href, icon, label, isActive, badge }: { href: string; icon: ReactNode; label: string; isActive: boolean; badge?: number }) => (
     <a
       href={href}
       title={collapsed ? label : undefined}
-      className={`group flex items-center rounded-xl text-[14px] font-semibold transition-all ${collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'} ${
+      className={`group relative flex items-center rounded-xl text-[14px] font-semibold transition-all ${collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'} ${
         isActive ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-200' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
       }`}
     >
       <span className={isActive ? 'text-white' : 'text-gray-400 group-hover:text-emerald-500'}>{icon}</span>
       {!collapsed && <span className="truncate">{label}</span>}
+      {badge != null && badge > 0 && (
+        collapsed ? (
+          <span className="absolute right-1 top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white">{badge > 99 ? '99+' : badge}</span>
+        ) : (
+          <span className={`ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[11px] font-bold leading-none ${isActive ? 'bg-white/25 text-white' : 'animate-pulse bg-red-500 text-white'}`}>{badge > 99 ? '99+' : badge}</span>
+        )
+      )}
     </a>
   )
 
@@ -143,7 +162,7 @@ export default function Sidebar() {
               {g.title && collapsed && gi > 0 && <div className="mx-3 mb-2 border-t border-gray-100" />}
               <div className="space-y-1">
                 {keys.map((k) => (
-                  <NavItem key={k} href={hrefFor(k)} icon={ICONS[k]} label={labelFor(k)} isActive={active === k} />
+                  <NavItem key={k} href={hrefFor(k)} icon={ICONS[k]} label={labelFor(k)} isActive={active === k} badge={k === 'pendencias' ? pendCount : undefined} />
                 ))}
                 {/* Campanhas fica na seção Atendimento, abaixo de Fluxos */}
                 {isAtendimento && (

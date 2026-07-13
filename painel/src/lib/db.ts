@@ -431,6 +431,32 @@ export type Stats = {
 }
 
 export type WaitingLead = { contact_id: string; name: string | null; phone: string | null; last_text: string | null; waitingMin: number }
+
+// Pendência = lead onde o PACIENTE falou por último e a conversa não foi
+// concluída. Sai quando o atendente responde (last_from_me vira true) ou conclui
+// (status done); volta se o paciente mandar mensagem de novo.
+export type Pendencia = { contact_id: string; name: string | null; phone: string | null; last_text: string | null; last_sent_at: string | null; waitingMin: number }
+
+export async function getPendencias(): Promise<Pendencia[]> {
+  const c = await cid()
+  const [convsRaw, doneRaw] = (await Promise.all([
+    rest(`conversations?company_id=eq.${c}&select=contact_id,name,phone,last_text,last_sent_at&last_from_me=is.false&order=last_sent_at.asc.nullslast&limit=500`).then((r) => r.json()),
+    rest(`flow_sessions?company_id=eq.${c}&select=contact_id&status=eq.done&limit=50000`).then((r) => r.json()),
+  ])) as [{ contact_id: string; name: string | null; phone: string | null; last_text: string | null; last_sent_at: string | null }[], { contact_id: string }[]]
+  const doneSet = new Set((doneRaw || []).map((s) => s.contact_id))
+  const now = Date.now()
+  return (convsRaw || [])
+    .filter((c) => !doneSet.has(c.contact_id))
+    .map((c) => ({
+      contact_id: c.contact_id,
+      name: c.name,
+      phone: c.phone,
+      last_text: c.last_text,
+      last_sent_at: c.last_sent_at,
+      waitingMin: c.last_sent_at ? Math.max(0, Math.round((now - Date.parse(c.last_sent_at)) / 60000)) : 0,
+    }))
+    .sort((a, b) => b.waitingMin - a.waitingMin)
+}
 export type AttendantStat = { atendente: string; respostas: number; tempoRespMin: number | null }
 export type DayPoint = { date: string; novosContatos: number; conversasUnicas: number; abertas: number; encerradas: number }
 export type MemberStat = {
