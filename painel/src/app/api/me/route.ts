@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { ALL_TRUE } from '@/lib/perms'
-import { membershipByEmail } from '@/lib/company'
+import { membershipByEmail, membershipByEmailCompany } from '@/lib/company'
 import { SESSION_MAX_AGE } from '@/lib/session'
 
 // Retorna quem é o atendente logado + sua empresa e permissões (lidas do
@@ -11,7 +11,16 @@ import { SESSION_MAX_AGE } from '@/lib/session'
 export async function GET() {
   const jar = await cookies()
   const email = jar.get('za_email')?.value ?? null
-  const membership = email ? await membershipByEmail(email).catch(() => null) : null
+  const activeCompany = jar.get('za_company')?.value ?? null
+
+  // Respeita a empresa ATIVA (cookie za_company) quando o usuário é membro dela
+  // — assim a troca de empresa "gruda". Só cai no vínculo mais antigo se o
+  // cookie estiver ausente ou apontar pra uma empresa que não é mais dele.
+  let membership = null
+  if (email) {
+    if (activeCompany) membership = await membershipByEmailCompany(email, activeCompany).catch(() => null)
+    if (!membership) membership = await membershipByEmail(email).catch(() => null)
+  }
 
   const hasCompany = !!membership
   const admin = hasCompany && !membership!.perms

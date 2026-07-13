@@ -39,6 +39,17 @@ export async function membershipByEmail(email: string): Promise<Membership | nul
   return rows[0] ?? null
 }
 
+// Vínculo do usuário (por e-mail) numa empresa ESPECÍFICA. Usado pra respeitar
+// a empresa ativa (cookie za_company) sem depender do user_id.
+export async function membershipByEmailCompany(email: string, companyId: string): Promise<Membership | null> {
+  if (!email || !companyId) return null
+  const q = `company_members?email=eq.${encodeURIComponent(email)}&company_id=eq.${companyId}&select=*&limit=1`
+  const r = await fetch(`${REST}/${q}`, { headers: H, cache: 'no-store' })
+  if (!r.ok) return null
+  const rows = await r.json()
+  return rows[0] ?? null
+}
+
 // Vínculo por user_id (id do Supabase Auth).
 export async function membershipByUser(userId: string): Promise<Membership | null> {
   if (!userId) return null
