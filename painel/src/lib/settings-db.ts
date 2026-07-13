@@ -30,6 +30,8 @@ export type Settings = {
   max_delay_ms: number
   default_flow_id: string | null // fluxo de resposta padrão
   media_flow_id: string | null   // fluxo padrão para mídia
+  call_reject_enabled: boolean   // recusar ligações + avisar por mensagem
+  call_reject_message: string | null // texto do aviso (vazio = padrão do conector)
 }
 
 export async function getSettings(companyId?: string): Promise<Settings> {
@@ -129,10 +131,12 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
 
   let res = await put(patch)
   if (!res.ok) {
-    // Colunas default_flow_id/media_flow_id ainda não migradas → salva sem elas.
+    // Colunas opcionais ainda não migradas → salva sem elas.
     const rest = { ...patch }
     delete (rest as Partial<Settings>).default_flow_id
     delete (rest as Partial<Settings>).media_flow_id
+    delete (rest as Partial<Settings>).call_reject_enabled
+    delete (rest as Partial<Settings>).call_reject_message
     if (Object.keys(rest).length > 0) {
       res = await put(rest)
       if (!res.ok) throw new Error(`saveSettings ${res.status}: ${await res.text()}`)

@@ -100,5 +100,8 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  // Ignora estáticos: _next e QUALQUER arquivo com extensão de imagem/ícone
+  // (senão o middleware redireciona /ricco-logo.png etc. pro /login e a imagem
+  // quebra pra quem não está logado — ex.: a logo na tela de login).
+  matcher: ['/((?!_next/static|_next/image|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico)$).*)'],
 }

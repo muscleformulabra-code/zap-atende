@@ -12,7 +12,12 @@ type Settings = {
   company_name: string
   min_delay_ms: number
   max_delay_ms: number
+  call_reject_enabled: boolean
+  call_reject_message: string | null
 }
+
+const CALL_MSG_PADRAO =
+  'Olá! 👋 Vi que você tentou ligar. Aqui neste número a gente atende *somente por mensagem* — não conseguimos atender chamadas. 😊\nPode me mandar sua dúvida por escrito que já te respondo por aqui!'
 
 type Tab = 'conexao' | 'fluxos' | 'etiquetas' | 'respostas' | 'equipe' | 'integracoes' | 'robo' | 'companhia'
 const MENU: { k: Tab; label: string }[] = [
@@ -110,6 +115,37 @@ export default function Config() {
                     <input type="number" min={500} max={30000} step={100} value={s.max_delay_ms} onChange={(e) => up({ max_delay_ms: Number(e.target.value) })} className="w-24 rounded-lg border border-gray-300 p-1.5" />
                     <span className="text-gray-500">milissegundos</span>
                   </div>
+                </section>
+
+                <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                  <label className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium text-gray-800">📵 Recusar ligações e avisar</div>
+                      <div className="text-xs text-gray-500">Quando um paciente ligar (voz ou vídeo), o robô recusa a chamada e manda uma mensagem automática.</div>
+                    </div>
+                    <button onClick={() => up({ call_reject_enabled: !s.call_reject_enabled })} className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${s.call_reject_enabled ? 'bg-emerald-500' : 'bg-gray-300'}`}>
+                      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${s.call_reject_enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                    </button>
+                  </label>
+                  {s.call_reject_enabled && (
+                    <div className="mt-4">
+                      <div className="mb-1 text-xs font-medium text-gray-600">Mensagem enviada ao paciente:</div>
+                      <textarea
+                        value={s.call_reject_message ?? ''}
+                        onChange={(e) => up({ call_reject_message: e.target.value })}
+                        placeholder={CALL_MSG_PADRAO}
+                        rows={4}
+                        className="w-full resize-y rounded-lg border border-gray-300 p-2.5 text-sm outline-none focus:border-emerald-500"
+                      />
+                      <div className="mt-1 flex items-center justify-between text-xs text-gray-400">
+                        <span>Deixe em branco pra usar a mensagem padrão. Use *texto* pra <b>negrito</b>.</span>
+                        {(s.call_reject_message ?? '') !== '' && (
+                          <button onClick={() => up({ call_reject_message: '' })} className="text-emerald-600 hover:underline">restaurar padrão</button>
+                        )}
+                      </div>
+                      <div className="mt-1 text-[11px] text-gray-400">Anti-spam: no máximo 1 aviso a cada 10 min por contato.</div>
+                    </div>
+                  )}
                 </section>
               </div>
             </div>
