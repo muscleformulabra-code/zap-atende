@@ -30,8 +30,21 @@ export async function POST(req: Request) {
     const rows: { from_me: boolean; text: string | null }[] = r.ok ? await r.json() : []
     convo = rows
       .reverse()
-      .filter((m) => m.text && m.text.trim() && !/^\[.*\]$/.test(m.text.trim())) // ignora rótulos tipo [imagem]
-      .map((m) => ({ role: m.from_me ? 'assistant' : 'user', content: m.text as string }))
+      .map((m): Turn | null => {
+        let content = (m.text || '').trim()
+        if (!content) return null
+        // Converte rótulos de mídia numa nota (pra a IA responder, não ficar muda).
+        if (/^\[.*\]$/.test(content)) {
+          const low = content.toLowerCase()
+          if (/imagem|figurinha|foto/.test(low)) content = '(o paciente enviou uma imagem)'
+          else if (/[áa]udio/.test(low)) content = '(o paciente enviou um áudio)'
+          else if (/v[íi]deo/.test(low)) content = '(o paciente enviou um vídeo)'
+          else if (/documento|arquivo/.test(low)) content = '(o paciente enviou um documento)'
+          else return null // [mensagem não reconhecida] e afins → ignora
+        }
+        return { role: m.from_me ? 'assistant' : 'user', content }
+      })
+      .filter((t): t is Turn => t !== null)
   } catch {
     /* segue sem histórico */
   }
@@ -47,6 +60,7 @@ export async function POST(req: Request) {
         response_format: { type: 'json_object' },
         messages: [{ role: 'system', content: buildAiPrompt(cfg) }, ...convo],
       }),
+      signal: AbortSignal.timeout(25000), // não trava a conversa se a OpenAI demorar
     })
     const d = await resp.json().catch(() => ({}))
     if (!resp.ok) return NextResponse.json({ enabled: true, handoff: true, message: '', reason: d?.error?.message || `openai ${resp.status}` })

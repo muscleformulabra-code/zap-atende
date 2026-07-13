@@ -462,21 +462,27 @@ export type Pendencia = { contact_id: string; name: string | null; phone: string
 
 export async function getPendencias(): Promise<Pendencia[]> {
   const c = await cid()
-  const [convsRaw, doneRaw] = (await Promise.all([
-    rest(`conversations?company_id=eq.${c}&select=contact_id,name,phone,last_text,last_sent_at&last_from_me=is.false&order=last_sent_at.asc.nullslast&limit=500`).then((r) => r.json()),
-    rest(`flow_sessions?company_id=eq.${c}&select=contact_id&status=eq.done&limit=50000`).then((r) => r.json()),
-  ])) as [{ contact_id: string; name: string | null; phone: string | null; last_text: string | null; last_sent_at: string | null }[], { contact_id: string }[]]
-  const doneSet = new Set((doneRaw || []).map((s) => s.contact_id))
+  const [convsRaw, sessions] = (await Promise.all([
+    rest(`conversations?company_id=eq.${c}&select=contact_id,name,phone,last_text,last_sent_at,last_from_me&order=last_sent_at.desc.nullslast&limit=500`).then((r) => r.json()),
+    rest(`flow_sessions?company_id=eq.${c}&select=contact_id,status&limit=50000`).then((r) => r.json()),
+  ])) as [{ contact_id: string; name: string | null; phone: string | null; last_text: string | null; last_sent_at: string | null; last_from_me: boolean | null }[], { contact_id: string; status: string }[]]
+  const statusOf = new Map((sessions || []).map((s) => [s.contact_id, s.status]))
   const now = Date.now()
   return (convsRaw || [])
-    .filter((c) => !doneSet.has(c.contact_id))
-    .map((c) => ({
-      contact_id: c.contact_id,
-      name: c.name,
-      phone: c.phone,
-      last_text: c.last_text,
-      last_sent_at: c.last_sent_at,
-      waitingMin: c.last_sent_at ? Math.max(0, Math.round((now - Date.parse(c.last_sent_at)) / 60000)) : 0,
+    .filter((cv) => {
+      const st = statusOf.get(cv.contact_id)
+      if (st === 'done') return false
+      // Pendência = paciente falou por último (esperando) OU foi passado pro
+      // humano (handoff) e ainda não concluído. Pega os dois casos.
+      return cv.last_from_me === false || st === 'handoff'
+    })
+    .map((cv) => ({
+      contact_id: cv.contact_id,
+      name: cv.name,
+      phone: cv.phone,
+      last_text: cv.last_text,
+      last_sent_at: cv.last_sent_at,
+      waitingMin: cv.last_sent_at ? Math.max(0, Math.round((now - Date.parse(cv.last_sent_at)) / 60000)) : 0,
     }))
     .sort((a, b) => b.waitingMin - a.waitingMin)
 }
