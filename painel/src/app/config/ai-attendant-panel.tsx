@@ -92,6 +92,19 @@ export default function AiAttendantPanel() {
             <input type="range" min={0} max={1} step={0.1} value={c.temperature} onChange={(e) => up('temperature', Number(e.target.value))} className="mt-3 w-full" />
           </div>
         </div>
+        <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="font-medium text-gray-700">⏱️ Agrupar mensagens rápidas:</span>
+            <span className="text-gray-500">esperar</span>
+            <input type="number" min={1} max={60} value={c.groupWaitSeconds} onChange={(e) => up('groupWaitSeconds', Math.max(1, Math.min(60, Number(e.target.value) || 8)))} className="w-20 rounded-lg border border-gray-300 p-1.5 text-center" />
+            <span className="text-gray-500">segundos antes de responder</span>
+          </div>
+          <div className="text-xs text-gray-400">Se o paciente manda várias mensagens seguidas, a IA espera ele terminar e responde 1 vez só (evita parecer spam). O tempo reinicia a cada nova mensagem.</div>
+          <label className="flex items-center gap-2 pt-1 text-sm text-gray-700">
+            <input type="checkbox" checked={c.transcribeAudio} onChange={(e) => up('transcribeAudio', e.target.checked)} className="h-4 w-4 rounded" />
+            🎤 A IA <b>ouve e entende áudios</b> do paciente (transcrição automática)
+          </label>
+        </div>
       </Section>
 
       <Section title="Boas-vindas (pré-atendimento)" hint="A primeira mensagem que a Sofia usa ao receber o paciente. Ela adapta com naturalidade.">

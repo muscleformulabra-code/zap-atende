@@ -21,6 +21,8 @@ export type AiAttendant = {
   enabled: boolean
   model: string
   temperature: number
+  groupWaitSeconds: number // tempo de espera pra agrupar mensagens rápidas (anti-spam)
+  transcribeAudio: boolean // transcrever áudios do paciente (a IA "ouve")
   persona: { name: string; tone: string }
   welcomeMessage: string // boas-vindas (pré-atendimento) — a IA abre com isso
   clinic: {
@@ -52,6 +54,8 @@ export function defaultRiccoOdonto(): AiAttendant {
     enabled: false,
     model: 'gpt-4o-mini',
     temperature: 0.5,
+    groupWaitSeconds: 8,
+    transcribeAudio: true,
     persona: {
       name: 'Sofia',
       tone: 'Acolhedora, humana e profissional. Premium mas natural, sem exageros. Tranquiliza quem tem medo ou dor. Trata por "você". No máximo 1 ou 2 emojis por mensagem.',
@@ -123,6 +127,8 @@ export function normalizeAi(raw: Partial<AiAttendant> | null | undefined): AiAtt
     enabled: r.enabled ?? d.enabled,
     model: r.model || d.model,
     temperature: typeof r.temperature === 'number' ? r.temperature : d.temperature,
+    groupWaitSeconds: typeof r.groupWaitSeconds === 'number' ? r.groupWaitSeconds : d.groupWaitSeconds,
+    transcribeAudio: r.transcribeAudio ?? d.transcribeAudio,
     persona: { name: r.persona?.name || d.persona.name, tone: r.persona?.tone || d.persona.tone },
     welcomeMessage: r.welcomeMessage ?? d.welcomeMessage,
     clinic: {
