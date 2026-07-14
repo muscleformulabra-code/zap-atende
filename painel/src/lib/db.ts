@@ -472,9 +472,9 @@ export async function getPendencias(): Promise<Pendencia[]> {
     .filter((cv) => {
       const st = statusOf.get(cv.contact_id)
       if (st === 'done') return false
-      // Pendência = paciente falou por último (esperando) OU foi passado pro
-      // humano (handoff) e ainda não concluído. Pega os dois casos.
-      return cv.last_from_me === false || st === 'handoff'
+      // Pendência = o PACIENTE falou por último (está esperando resposta).
+      // Se o atendente/IA já respondeu (last_from_me=true), NÃO é pendência.
+      return cv.last_from_me === false
     })
     .map((cv) => ({
       contact_id: cv.contact_id,
