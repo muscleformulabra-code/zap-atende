@@ -424,6 +424,10 @@ async function startSession(companyId) {
       }
       const name = msg.pushName || null
       const text = extractText(msg)
+      // Mensagem sem conteúdo legível (falha de descriptografia — comum com o novo
+      // @lid do WhatsApp e logo após reconexões). NÃO salva nem responde: o
+      // WhatsApp costuma reenviar a versão decriptada depois, e aí processamos a boa.
+      if (text === null && !isMediaMsg(msg)) { s.diag.emptyMsgs = (s.diag.emptyMsgs || 0) + 1; continue }
       const sentAt = msg.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() : new Date().toISOString()
 
       try {
