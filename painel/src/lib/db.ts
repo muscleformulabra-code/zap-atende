@@ -68,7 +68,7 @@ export async function getConversations(): Promise<Conversation[]> {
   const smap = new Map((sessions as { contact_id: string; status: string; assigned_to: string | null }[]).map((s) => [s.contact_id, s]))
   return (convs as (Omit<Conversation, 'status' | 'tags' | 'assigned_to'> & { tags?: string[] })[]).map((c) => {
     const s = smap.get(c.contact_id)
-    return { ...c, tags: c.tags ?? [], status: s?.status ?? 'active', assigned_to: s?.assigned_to ?? null }
+    return { ...c, phone: stripDevice(c.phone), tags: c.tags ?? [], status: s?.status ?? 'active', assigned_to: s?.assigned_to ?? null }
   })
 }
 
@@ -287,6 +287,11 @@ export type ContactRow = { id: string; name: string | null; phone: string | null
 //  • 13 díg. começando com 55 (55 + DDD + celular)  -> mantém
 //  • 12 díg. começando com 55 (55 + DDD + fixo)      -> mantém
 //  • 11 díg. (DDD + celular) ou 10 díg. (DDD + fixo) -> prefixa 55
+// Remove o sufixo de aparelho do WhatsApp (multi-device): "556183741339:0" → "556183741339".
+function stripDevice(phone: string | null): string | null {
+  return phone ? phone.split(':')[0] : phone
+}
+
 function normPhone(phone: string): string {
   const d = (phone || '').replace(/\D/g, '').replace(/^0+/, '') // tira símbolos e zeros à esquerda
   if (d.startsWith('55') && (d.length === 12 || d.length === 13)) return d
@@ -314,12 +319,12 @@ export async function listContacts(search?: string, tag?: string, limit = 1000):
   }
   try {
     const rows = await (await rest(path)).json()
-    return (rows as ContactRow[]).map((r) => ({ ...r, tags: r.tags ?? [], avatar_url: r.avatar_url ?? null }))
+    return (rows as ContactRow[]).map((r) => ({ ...r, phone: stripDevice(r.phone), tags: r.tags ?? [], avatar_url: r.avatar_url ?? null }))
   } catch {
     // Colunas tags/avatar_url ainda não criadas → busca só o básico.
     const fallback = `contacts?company_id=eq.${c}&select=id,name,phone,jid,created_at&order=created_at.desc&limit=${limit}` + (search && search.trim() ? `&or=(name.ilike.*${encodeURIComponent(search.trim())}*,phone.ilike.*${encodeURIComponent(search.trim())}*)` : '')
     const rows = await (await rest(fallback)).json()
-    return (rows as Omit<ContactRow, 'tags' | 'avatar_url'>[]).map((r) => ({ ...r, tags: [], avatar_url: null }))
+    return (rows as Omit<ContactRow, 'tags' | 'avatar_url'>[]).map((r) => ({ ...r, phone: stripDevice(r.phone), tags: [], avatar_url: null }))
   }
 }
 
@@ -443,7 +448,7 @@ export async function getContactCard(contactId: string): Promise<ContactCard | n
   const contact = rows[0]
   if (!contact) return null
   const sess = await (await rest(`flow_sessions?contact_id=eq.${contactId}&select=status,assigned_to`)).json()
-  return { ...contact, avatar_url: contact.avatar_url ?? null, status: sess[0]?.status ?? 'active', assigned_to: sess[0]?.assigned_to ?? null }
+  return { ...contact, phone: stripDevice(contact.phone), avatar_url: contact.avatar_url ?? null, status: sess[0]?.status ?? 'active', assigned_to: sess[0]?.assigned_to ?? null }
 }
 
 export type Stats = {
@@ -479,7 +484,7 @@ export async function getPendencias(): Promise<Pendencia[]> {
     .map((cv) => ({
       contact_id: cv.contact_id,
       name: cv.name,
-      phone: cv.phone,
+      phone: stripDevice(cv.phone),
       last_text: cv.last_text,
       last_sent_at: cv.last_sent_at,
       waitingMin: cv.last_sent_at ? Math.max(0, Math.round((now - Date.parse(cv.last_sent_at)) / 60000)) : 0,
