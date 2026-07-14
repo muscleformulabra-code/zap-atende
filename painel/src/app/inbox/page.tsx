@@ -445,16 +445,28 @@ export default function Inbox() {
           {filtered.map((c) => {
             const waiting = c.last_from_me === false && c.status !== 'done'
             const active = sel?.contact_id === c.contact_id
+            const team = c.is_team
             return (
-              <button key={c.contact_id} onClick={() => selecionar(c)} className={`flex w-full items-center gap-3 border-b border-gray-50 px-3 py-3 text-left hover:bg-gray-50 ${active ? 'bg-emerald-50' : ''}`}>
+              <button key={c.contact_id} onClick={() => selecionar(c)} className={`flex w-full items-center gap-3 border-b border-gray-50 px-3 py-3 text-left transition ${active ? 'bg-emerald-100' : team ? 'bg-gradient-to-r from-emerald-50 to-teal-50 hover:from-emerald-100 hover:to-teal-100' : 'hover:bg-gray-50'}`}>
                 <div className="relative shrink-0">
                   <Avatar name={c.name} phone={c.phone} src={c.avatar_url} className="h-10 w-10 text-sm" />
-                  {c.status === 'done' && <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white text-[9px] shadow">✅</span>}
+                  {team ? (
+                    <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-[9px] shadow ring-2 ring-white" title="Equipe">👥</span>
+                  ) : c.status === 'done' ? (
+                    <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white text-[9px] shadow">✅</span>
+                  ) : null}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1">
-                    <span className="truncate text-sm font-medium text-gray-800">{c.name?.trim() || c.phone || 'Sem nome'}</span>
-                    {waiting && <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-amber-400" title="aguardando resposta" />}
+                    <span className={`truncate text-sm font-medium ${team ? 'text-emerald-900' : 'text-gray-800'}`}>{c.name?.trim() || c.phone || 'Sem nome'}</span>
+                    {team && waiting ? (
+                      <span className="relative ml-auto flex h-2.5 w-2.5 shrink-0" title="nova mensagem do profissional">
+                        <span className="za-pulse absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                      </span>
+                    ) : waiting ? (
+                      <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-amber-400" title="aguardando resposta" />
+                    ) : null}
                   </div>
                   <div className="truncate text-xs text-gray-500">{c.last_from_me ? 'você: ' : ''}{c.last_text || '—'}</div>
                 </div>

@@ -471,7 +471,7 @@ export type Pendencia = { contact_id: string; name: string | null; phone: string
 export async function getPendencias(): Promise<Pendencia[]> {
   const c = await cid()
   const [convsRaw, sessions] = (await Promise.all([
-    rest(`conversations?company_id=eq.${c}&select=contact_id,name,phone,last_text,last_sent_at,last_from_me,last_sent_by&order=last_sent_at.desc.nullslast&limit=500`).then((r) => r.json()),
+    rest(`conversations?company_id=eq.${c}&is_team=eq.false&select=contact_id,name,phone,last_text,last_sent_at,last_from_me,last_sent_by&order=last_sent_at.desc.nullslast&limit=500`).then((r) => r.json()),
     rest(`flow_sessions?company_id=eq.${c}&select=contact_id,status&limit=50000`).then((r) => r.json()),
   ])) as [{ contact_id: string; name: string | null; phone: string | null; last_text: string | null; last_sent_at: string | null; last_from_me: boolean | null; last_sent_by: string | null }[], { contact_id: string; status: string }[]]
   const statusOf = new Map((sessions || []).map((s) => [s.contact_id, s.status]))
