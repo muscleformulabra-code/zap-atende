@@ -49,6 +49,7 @@ const { handleIncoming, getSettings } = require('./bot')
 
 const SEED_COMPANY_ID = '00000000-0000-0000-0000-000000000001'
 const AUTH_ROOT = path.join(__dirname, 'auth')
+const PAINEL_URL = process.env.PAINEL_URL || 'http://localhost:3000'
 
 // Ligações (voz/vídeo): o atendimento é só por mensagem. O robô recusa a
 // chamada e manda um aviso. Texto padrão (a empresa pode sobrescrever via
@@ -135,13 +136,35 @@ async function botSend(sock, target, reply, settings, contactId, companyId) {
   } catch {}
 }
 
+// Configurações com cache curto por sessão (evita 1 fetch por mensagem).
+async function getSettingsCached(s, companyId) {
+  const now = Date.now()
+  if (s._settings && now - s._settings.at < 15000) return s._settings.data
+  const data = await getSettings(companyId).catch((e) => { s.diag.lastBotError = 'getSettings: ' + (e?.message || e); return null })
+  if (data) s._settings = { data, at: now }
+  return data || (s._settings && s._settings.data) || null
+}
+
+// Transcreve um áudio (URL do Storage) via painel/Whisper. A IA "ouve".
+async function transcribeAudioMsg(url, companyId) {
+  try {
+    const r = await fetch(`${PAINEL_URL}/api/transcribe`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, company: companyId }) })
+    if (!r.ok) return null
+    const d = await r.json()
+    return (d && d.text ? String(d.text).trim() : '') || null
+  } catch {
+    return null
+  }
+}
+
 // ── Anti-spam: agrupa mensagens rápidas do MESMO contato em UMA resposta ──
 // Se o paciente manda "oi", "testando", "tudo bem?" em segundos, o bot não
-// responde 3 vezes: espera ele terminar (DEBOUNCE_MS de silêncio) e responde 1x
-// com o histórico completo. Evita parecer robô/spam.
-const DEBOUNCE_MS = 3500
-
-function scheduleBotReply(s, sock, target, companyId, contactId, text, isMedia) {
+// responde 3 vezes: espera ele terminar (tempo configurável) e responde 1x com
+// o histórico completo. Evita parecer robô/spam. Reinicia a cada nova mensagem.
+async function scheduleBotReply(s, sock, target, companyId, contactId, text, isMedia) {
+  const settings = await getSettingsCached(s, companyId)
+  const sec = settings?.ai_attendant?.groupWaitSeconds
+  const waitMs = Math.max(1000, Math.min((typeof sec === 'number' ? sec : 8) * 1000, 60000))
   if (!s.botTimers) s.botTimers = new Map()
   const prev = s.botTimers.get(contactId)
   if (prev) clearTimeout(prev)
@@ -151,12 +174,12 @@ function scheduleBotReply(s, sock, target, companyId, contactId, text, isMedia) 
       s.diag.lastBotError = e?.message || String(e)
       console.error('Erro no chatbot:', e?.message || e)
     })
-  }, DEBOUNCE_MS)
+  }, waitMs)
   s.botTimers.set(contactId, timer)
 }
 
 async function runBotReply(s, sock, target, companyId, contactId, text, isMedia) {
-  const settings = await getSettings(companyId).catch((e) => { s.diag.lastBotError = 'getSettings: ' + (e?.message || e); return null })
+  const settings = await getSettingsCached(s, companyId)
   if (settings && settings.bot_enabled === false) { s.diag.botPath = 'bot_desligado'; return }
   const { replies, tagOps } = await handleIncoming(contactId, text, {
     reengageHours: settings?.reengage_hours ?? 12,
@@ -395,7 +418,16 @@ async function startSession(companyId) {
         // aparecer de verdade no inbox (antes só ficava o rótulo "[imagem]").
         let media = null
         if (isMediaMsg(msg)) media = await fetchMedia(sock, msg)
-        await insertMessage({ contactId: contact.id, jid, fromMe, text, waMessageId: msg.key.id, sentAt, companyId, mediaUrl: media?.url, mediaType: media?.type })
+        // Áudio do paciente → transcreve (a IA "ouve"), vira o texto da mensagem.
+        let finalText = text
+        if (!fromMe && media?.type === 'audio' && media?.url) {
+          const st = await getSettingsCached(s, companyId)
+          if (st?.ai_attendant?.transcribeAudio !== false) {
+            const transcript = await transcribeAudioMsg(media.url, companyId)
+            if (transcript) finalText = `🎤 ${transcript}`
+          }
+        }
+        await insertMessage({ contactId: contact.id, jid, fromMe, text: finalText, waMessageId: msg.key.id, sentAt, companyId, mediaUrl: media?.url, mediaType: media?.type })
         s.diag.saved++
 
         if (!fromMe && process.env.FETCH_AVATARS === 'true') {
@@ -409,9 +441,9 @@ async function startSession(companyId) {
         s.diag.lastText = text
         console.log(`💬 [${companyId.slice(0, 8)}] ${fromMe ? 'nós →' : '→'} ${name || phone}: ${(text || '').slice(0, 60)}`)
 
-        if (!fromMe && text) {
+        if (!fromMe && finalText) {
           // Debounce: agrupa mensagens rápidas do mesmo contato → 1 resposta só.
-          scheduleBotReply(s, sock, jid, companyId, contact.id, text, isMediaMsg(msg))
+          await scheduleBotReply(s, sock, jid, companyId, contact.id, finalText, isMediaMsg(msg))
         }
       } catch (err) {
         s.diag.lastError = err?.message || String(err)
