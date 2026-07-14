@@ -135,6 +135,47 @@ async function botSend(sock, target, reply, settings, contactId, companyId) {
   } catch {}
 }
 
+// ── Anti-spam: agrupa mensagens rápidas do MESMO contato em UMA resposta ──
+// Se o paciente manda "oi", "testando", "tudo bem?" em segundos, o bot não
+// responde 3 vezes: espera ele terminar (DEBOUNCE_MS de silêncio) e responde 1x
+// com o histórico completo. Evita parecer robô/spam.
+const DEBOUNCE_MS = 3500
+
+function scheduleBotReply(s, sock, target, companyId, contactId, text, isMedia) {
+  if (!s.botTimers) s.botTimers = new Map()
+  const prev = s.botTimers.get(contactId)
+  if (prev) clearTimeout(prev)
+  const timer = setTimeout(() => {
+    s.botTimers.delete(contactId)
+    runBotReply(s, sock, target, companyId, contactId, text, isMedia).catch((e) => {
+      s.diag.lastBotError = e?.message || String(e)
+      console.error('Erro no chatbot:', e?.message || e)
+    })
+  }, DEBOUNCE_MS)
+  s.botTimers.set(contactId, timer)
+}
+
+async function runBotReply(s, sock, target, companyId, contactId, text, isMedia) {
+  const settings = await getSettings(companyId).catch((e) => { s.diag.lastBotError = 'getSettings: ' + (e?.message || e); return null })
+  if (settings && settings.bot_enabled === false) { s.diag.botPath = 'bot_desligado'; return }
+  const { replies, tagOps } = await handleIncoming(contactId, text, {
+    reengageHours: settings?.reengage_hours ?? 12,
+    isMedia,
+    defaultFlowId: settings?.default_flow_id ?? null,
+    mediaFlowId: settings?.media_flow_id ?? null,
+    companyId,
+    aiEnabled: settings?.ai_attendant?.enabled === true,
+  })
+  await applyTagOps(contactId, tagOps).catch(() => {})
+  s.diag.botPath = 'fluxo'
+  s.diag.lastReplyCount = replies.length
+  for (const r of replies) {
+    await botSend(sock, target, r, settings, contactId, companyId)
+    s.diag.botReplies++
+    console.log('   ↳ enviou:', (r.text || (r.image ? '[imagem]' : '')).slice(0, 40))
+  }
+}
+
 function isMediaMsg(msg) {
   const m = unwrap(msg.message) || {}
   return !!(m.imageMessage || m.videoMessage || m.audioMessage || m.documentMessage || m.stickerMessage)
@@ -369,33 +410,8 @@ async function startSession(companyId) {
         console.log(`💬 [${companyId.slice(0, 8)}] ${fromMe ? 'nós →' : '→'} ${name || phone}: ${(text || '').slice(0, 60)}`)
 
         if (!fromMe && text) {
-          const target = jid
-          try {
-            const settings = await getSettings(companyId).catch((e) => { s.diag.lastBotError = 'getSettings: ' + (e?.message || e); return null })
-            if (settings && settings.bot_enabled === false) {
-              s.diag.botPath = 'bot_desligado'
-            } else {
-              const { replies, tagOps } = await handleIncoming(contact.id, text, {
-                reengageHours: settings?.reengage_hours ?? 12,
-                isMedia: isMediaMsg(msg),
-                defaultFlowId: settings?.default_flow_id ?? null,
-                mediaFlowId: settings?.media_flow_id ?? null,
-                companyId,
-                aiEnabled: settings?.ai_attendant?.enabled === true,
-              })
-              await applyTagOps(contact.id, tagOps).catch(() => {})
-              s.diag.botPath = 'fluxo'
-              s.diag.lastReplyCount = replies.length
-              for (const r of replies) {
-                await botSend(sock, target, r, settings, contact.id, companyId)
-                s.diag.botReplies++
-                console.log('   ↳ enviou:', (r.text || (r.image ? '[imagem]' : '')).slice(0, 40))
-              }
-            }
-          } catch (err) {
-            s.diag.lastBotError = err?.message || String(err)
-            console.error('Erro no chatbot:', err?.message || err)
-          }
+          // Debounce: agrupa mensagens rápidas do mesmo contato → 1 resposta só.
+          scheduleBotReply(s, sock, jid, companyId, contact.id, text, isMediaMsg(msg))
         }
       } catch (err) {
         s.diag.lastError = err?.message || String(err)
