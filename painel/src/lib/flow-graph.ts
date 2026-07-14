@@ -201,7 +201,7 @@ export const defaultGraph: FlowGraph = {
       type: 'message',
       position: { x: 40, y: 40 },
       data: {
-        text: 'Olá! 👋 Seja bem-vindo(a) ao Centro Médico da Família.\nSomos um centro integrado de saúde, odontologia e bem-estar.',
+        text: 'Olá! 👋 Seja bem-vindo(a)!\nQue bom ter você por aqui. Vou te ajudar no que precisar.',
       },
     },
     {
@@ -211,16 +211,16 @@ export const defaultGraph: FlowGraph = {
       data: {
         text: 'Como podemos te ajudar hoje?',
         options: [
-          { id: 'o1', label: 'Consultas Médicas' },
-          { id: 'o2', label: 'Orçamento de Exames' },
+          { id: 'o1', label: 'Agendar atendimento' },
+          { id: 'o2', label: 'Tirar uma dúvida' },
           { id: 'o3', label: 'Localização / Endereço' },
           { id: 'o4', label: 'Falar com um atendente' },
         ],
       },
     },
-    { id: 'consultas', type: 'message', position: { x: 420, y: 140 }, data: { text: 'Ótimo! 😊 Vou te encaminhar para um atendente confirmar o melhor horário.' } },
-    { id: 'exames', type: 'message', position: { x: 420, y: 300 }, data: { text: 'Perfeito! Me envie a lista de exames (foto do pedido serve) que já retornamos os valores.' } },
-    { id: 'localizacao', type: 'message', position: { x: 420, y: 460 }, data: { text: '📍 QNA 16, Lote 14, 4º andar — Taguatinga Norte - DF.\nSeg a sex, 8h às 18h.' } },
+    { id: 'consultas', type: 'message', position: { x: 420, y: 140 }, data: { text: 'Ótimo! 😊 Vou te encaminhar para um atendente confirmar o melhor horário pra você.' } },
+    { id: 'exames', type: 'message', position: { x: 420, y: 300 }, data: { text: 'Perfeito! Me conta um pouco mais sobre o que você precisa que já te ajudo por aqui.' } },
+    { id: 'localizacao', type: 'message', position: { x: 420, y: 460 }, data: { text: '📍 Peça nosso endereço e horário a um atendente. Já te encaminho!' } },
     { id: 'handoff', type: 'handoff', position: { x: 820, y: 300 }, data: { text: 'Prontinho! ✅ Vou te transferir para um atendente. Em instantes alguém continua por aqui. 🙂' } },
   ],
   edges: [

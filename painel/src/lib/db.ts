@@ -392,7 +392,7 @@ async function upsertContacts(rows: Record<string, unknown>[]): Promise<void> {
   const c = await cid()
   const stamped: Record<string, unknown>[] = rows.map((r) => ({ ...r, company_id: c }))
   try {
-    await rest('contacts?on_conflict=jid', {
+    await rest('contacts?on_conflict=company_id,jid', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify(stamped),
@@ -400,7 +400,7 @@ async function upsertContacts(rows: Record<string, unknown>[]): Promise<void> {
   } catch (e) {
     if (!stamped.some((r) => 'tags' in r)) throw e
     const semTags = stamped.map(({ tags, ...rest }) => rest) // eslint-disable-line @typescript-eslint/no-unused-vars
-    await rest('contacts?on_conflict=jid', {
+    await rest('contacts?on_conflict=company_id,jid', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify(semTags),
