@@ -1,0 +1,5 @@
+# Instala o ffmpeg pelo apt do sistema (confiável no build do Railway) — usado
+# para converter o áudio do inbox (WebM do navegador) para OGG/Opus, o formato
+# de nota de voz do WhatsApp. Evita o ffmpeg-static (que quebrava o npm install).
+[phases.setup]
+aptPkgs = ["ffmpeg"]

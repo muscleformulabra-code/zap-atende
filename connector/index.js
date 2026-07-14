@@ -21,10 +21,9 @@ const http = require('http')
 const fs = require('fs')
 const pino = require('pino')
 const { spawn } = require('child_process')
-// ffmpeg é opcional: se o binário não instalar, o conector NÃO pode quebrar no
-// boot (senão o Railway mantém a versão antiga). Áudio cai no fallback.
-let ffmpegPath = null
-try { ffmpegPath = require('ffmpeg-static') } catch (e) { console.error('⚠️ ffmpeg-static indisponível (áudio sem conversão):', e.message) }
+// ffmpeg do SISTEMA (instalado via nixpacks/apt). Se não existir, o spawn
+// dispara 'error' e a conversão cai no fallback — nunca quebra o boot.
+const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'
 
 // Converte o áudio gravado no navegador (webm/opus) pra OGG/Opus — formato de
 // NOTA DE VOZ do WhatsApp. Sem isso o áudio não toca no celular do paciente.
