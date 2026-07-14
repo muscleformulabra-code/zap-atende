@@ -509,7 +509,7 @@ export default function Inbox() {
                         {caption && <div className="mt-1">{caption}</div>}
                       </>
                     ) : (
-                      m.text || <span className="italic text-gray-400">[mídia]</span>
+                      m.text || <span className="italic text-gray-400">[não foi possível ler esta mensagem]</span>
                     )}
                     <div className="mt-0.5 text-right text-[10px] text-gray-400">{hora(m.sent_at)}</div>
                   </div>
