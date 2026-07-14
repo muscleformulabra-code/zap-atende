@@ -404,9 +404,17 @@ export default function Inbox() {
         <div className="border-b border-gray-100 px-4 pb-3 pt-3">
           <div className="mb-2 flex items-center justify-between">
             <div className="flex gap-1 text-xs">
-              {([['abertas', `Abertas (${abertasCount})`], ['concluidas', 'Concluídas'], ['todas', 'Todas'], ['equipe', `👥 Equipe${equipeCount ? ` (${equipeCount})` : ''}`]] as [Tab, string][]).map(([k, label]) => (
-                <button key={k} onClick={() => setTab(k)} className={`rounded-lg px-2.5 py-1 font-medium ${tab === k ? 'bg-emerald-100 text-emerald-700' : 'text-gray-500 hover:bg-gray-100'}`}>{label}</button>
-              ))}
+              {([['abertas', `Abertas (${abertasCount})`], ['concluidas', 'Concluídas'], ['todas', 'Todas'], ['equipe', `👥 Equipe${equipeCount ? ` (${equipeCount})` : ''}`]] as [Tab, string][]).map(([k, label]) => {
+                if (k === 'equipe') {
+                  // Aba Equipe sempre colorida (gradiente verde), pra destacar das demais.
+                  return (
+                    <button key={k} onClick={() => setTab(k)} className={`rounded-lg px-2.5 py-1 font-medium shadow-sm transition ${tab === k ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white' : 'bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 hover:from-emerald-100 hover:to-teal-100'}`}>{label}</button>
+                  )
+                }
+                return (
+                  <button key={k} onClick={() => setTab(k)} className={`rounded-lg px-2.5 py-1 font-medium ${tab === k ? 'bg-emerald-100 text-emerald-700' : 'text-gray-500 hover:bg-gray-100'}`}>{label}</button>
+                )
+              })}
             </div>
             <div className="relative">
               <button onClick={() => setFilterOpen((v) => !v)} title="Filtros" className={`relative rounded-lg p-1.5 ${nFiltros ? 'bg-emerald-100 text-emerald-700' : 'text-gray-400 hover:bg-gray-100'}`}>
