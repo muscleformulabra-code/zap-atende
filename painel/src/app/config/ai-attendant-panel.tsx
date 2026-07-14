@@ -115,6 +115,7 @@ export default function AiAttendantPanel() {
         <div className="space-y-3">
           <div><div className={label}>Nome da clínica</div><input value={c.clinic.name} onChange={(e) => up('clinic', { ...c.clinic, name: e.target.value })} className={`mt-1 ${input}`} /></div>
           <div><div className={label}>Endereço</div><input value={c.clinic.address} onChange={(e) => up('clinic', { ...c.clinic, address: e.target.value })} className={`mt-1 ${input}`} /></div>
+          <div><div className={label}>💼 Link "Trabalhe Conosco" (vagas/currículo) — a IA encaminha candidatos pra cá</div><input value={c.clinic.careersUrl} onChange={(e) => up('clinic', { ...c.clinic, careersUrl: e.target.value })} placeholder="https://..." className={`mt-1 ${input}`} /></div>
           <div><div className={label}>Formas de pagamento / convênio</div><textarea value={c.clinic.payment} onChange={(e) => up('clinic', { ...c.clinic, payment: e.target.value })} rows={2} className={`mt-1 ${input} resize-y`} /></div>
           <label className="flex items-center gap-2 text-sm text-gray-700">
             <input type="checkbox" checked={c.clinic.freeEvaluation} onChange={(e) => up('clinic', { ...c.clinic, freeEvaluation: e.target.checked })} className="h-4 w-4 rounded" />

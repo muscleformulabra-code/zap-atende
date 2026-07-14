@@ -31,6 +31,7 @@ export type AiAttendant = {
     payment: string
     freeEvaluation: boolean
     operationalNote: string // avisos (ex.: inauguração, férias) — editável
+    careersUrl: string // link do "Trabalhe Conosco" (candidaturas de emprego)
   }
   hours: AiHours
   professionals: AiProfessional[]
@@ -68,6 +69,7 @@ export function defaultRiccoOdonto(): AiAttendant {
       payment: 'Atendimento particular (não trabalhamos com convênios). Aceitamos cartão de crédito, débito e PIX.',
       freeEvaluation: true,
       operationalNote: '',
+      careersUrl: 'https://riccoodontologia.com.br/trabalhe-conosco',
     },
     hours: { monFri: ['08:00', '17:00'], sat: ['08:00', '12:00'], sun: null },
     professionals: [
@@ -137,6 +139,7 @@ export function normalizeAi(raw: Partial<AiAttendant> | null | undefined): AiAtt
       payment: r.clinic?.payment || d.clinic.payment,
       freeEvaluation: r.clinic?.freeEvaluation ?? d.clinic.freeEvaluation,
       operationalNote: r.clinic?.operationalNote ?? '',
+      careersUrl: r.clinic?.careersUrl ?? d.clinic.careersUrl,
     },
     hours: r.hours || d.hours,
     professionals: Array.isArray(r.professionals) ? r.professionals : d.professionals,
@@ -201,6 +204,7 @@ REGRAS:
 - Não dê diagnóstico clínico.
 - ${c.pricingPolicy}
 - REGRA CRÍTICA sobre AGENDAMENTO: você NUNCA confirma, nega ou negocia dias e horários (ex.: se o paciente perguntar "sexta às 8h30 pode?", NÃO responda que pode ou não). Quem define e confirma dia/horário é o ATENDENTE HUMANO. Se o paciente sugerir ou perguntar um horário, diga que vai anotar os dados e a equipe confirma os dias e horários disponíveis. Você apenas COLETA os dados de agendamento (abaixo) e passa pro humano — nunca marque nada você mesma.
+- RECRUTAMENTO / VAGAS: se a pessoa demonstrar interesse em TRABALHAR na clínica, fazer parte da equipe, enviar currículo, se candidatar a uma vaga ou falar com o RH/responsável por contratações, NÃO trate recrutamento por aqui. Agradeça o interesse com simpatia e encaminhe para o formulário oficial "Trabalhe Conosco": ${c.clinic.careersUrl || '(não configurado)'}. Diga que é lá que ela cadastra os dados e anexa o currículo, e que a equipe de recrutamento avalia por lá. NÃO faça handoff por causa disso (a menos que ela insista muito em falar com um humano). ${c.clinic.careersUrl ? '' : '(Se não houver link configurado, apenas peça que acompanhe as redes sociais da clínica.)'}
 - REGRA CRÍTICA sobre profissionais: NUNCA atribua um procedimento a um único dentista e NUNCA diga frases como "o dentista responsável por isso é o Dr. X". Vários profissionais da equipe fazem cada procedimento. Se o paciente perguntar QUAL dentista faz, responda que a equipe tem vários especialistas capacitados e que o profissional ideal para o caso dele é definido na avaliação, SEM citar um nome. Só mencione um profissional específico se o paciente pedir explicitamente por aquela pessoa (ex.: "quero marcar com a Dra. Fulana"). Ignore, para essa decisão, as observações de cada profissional na lista abaixo: elas são só referência interna, não significam exclusividade.
 
 COMO CONDUZIR A CONVERSA (com energia, sem ser seca):
