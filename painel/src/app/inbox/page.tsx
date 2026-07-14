@@ -392,7 +392,8 @@ export default function Inbox() {
       return (c.name ?? '').toLowerCase().includes(q) || (c.phone ?? '').includes(q)
     })
   const abertasCount = convs.filter((c) => !c.is_team && c.status !== 'done').length
-  const equipeCount = convs.filter((c) => c.is_team).length
+  // Só conta como "não lida" quando um profissional mandou a última mensagem.
+  const equipeUnread = convs.filter((c) => c.is_team && c.last_from_me === false).length
   const nFiltros = (filtAssign !== 'todos' ? 1 : 0) + (filtTag ? 1 : 0)
   const curStatus = card?.status ?? sel?.status ?? 'active'
   const assignedTo = card?.assigned_to ?? null
@@ -404,11 +405,15 @@ export default function Inbox() {
         <div className="border-b border-gray-100 px-4 pb-3 pt-3">
           <div className="mb-2 flex items-center justify-between">
             <div className="flex gap-1 text-xs">
-              {([['abertas', `Abertas (${abertasCount})`], ['concluidas', 'Concluídas'], ['todas', 'Todas'], ['equipe', `👥 Equipe${equipeCount ? ` (${equipeCount})` : ''}`]] as [Tab, string][]).map(([k, label]) => {
+              {([['abertas', `Abertas (${abertasCount})`], ['concluidas', 'Concluídas'], ['todas', 'Todas'], ['equipe', '👥 Equipe']] as [Tab, string][]).map(([k, label]) => {
                 if (k === 'equipe') {
                   // Aba Equipe sempre colorida (gradiente verde), pra destacar das demais.
+                  // Badge só aparece quando há mensagem não lida de profissional.
                   return (
-                    <button key={k} onClick={() => setTab(k)} className={`rounded-lg px-2.5 py-1 font-medium shadow-sm transition ${tab === k ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white' : 'bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 hover:from-emerald-100 hover:to-teal-100'}`}>{label}</button>
+                    <button key={k} onClick={() => setTab(k)} className={`relative rounded-lg px-2.5 py-1 font-medium shadow-sm transition ${tab === k ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white' : 'bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 hover:from-emerald-100 hover:to-teal-100'}`}>
+                      {label}
+                      {equipeUnread > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">{equipeUnread}</span>}
+                    </button>
                   )
                 }
                 return (
