@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import {
   ReactFlow,
   Background,
@@ -29,13 +29,12 @@ import {
   type NodeData,
 } from '@/lib/flow-graph'
 
-// Alturas fixas dos blocos com múltiplas saídas (usadas pra posicionar os pontos de conexão).
-const NODE_W = 256
+const NODE_W = 260
 const HEADER_H = 42
 const TEXT_H = 46
 const ROW_H = 34
 
-// Estilos (classes ESTÁTICAS pro Tailwind não podar) por tipo de bloco.
+// Cores por tipo de bloco (classes estáticas pro Tailwind não podar).
 type Style = { accent: string; chip: string; ring: string; hover: string; handle: string; label: string }
 const S: Record<BlockType, Style> = {
   message:     { accent: 'before:bg-emerald-400', chip: 'bg-emerald-100 text-emerald-700', ring: 'ring-emerald-400/60', hover: 'hover:border-emerald-300 hover:bg-emerald-50/40', handle: '!bg-emerald-400', label: 'text-emerald-700' },
@@ -54,10 +53,34 @@ const S: Record<BlockType, Style> = {
   handoff:     { accent: 'before:bg-orange-400',  chip: 'bg-orange-100 text-orange-700',   ring: 'ring-orange-400/60',  hover: 'hover:border-orange-300 hover:bg-orange-50/40',   handle: '!bg-orange-400',  label: 'text-orange-700' },
 }
 
-// Bolinhas de conexão maiores e visíveis (saída = arraste daqui; entrada = solte aqui).
-const HANDLE = '!h-5 !w-5 !border-[3px] !border-white !shadow-md transition-transform hover:!scale-125 !cursor-crosshair'
+// Handle discreto (pode arrastar pra ligar manualmente também).
+const DOT = '!h-3 !w-3 !border-2 !border-white !shadow transition-transform hover:!scale-125 !cursor-crosshair'
 
-function Shell({ type, selected, isStart, children }: { type: BlockType; selected?: boolean; isStart?: boolean; children: React.ReactNode }) {
+// ── Contexto: dá aos blocos o "+ adicionar" e o "está ligado?" ──
+type BuilderCtx = {
+  onAdd: (sourceId: string, sourceHandle: string | null, e: React.MouseEvent) => void
+  isConnected: (sourceId: string, sourceHandle: string | null) => boolean
+}
+const Ctx = createContext<BuilderCtx>({ onAdd: () => {}, isConnected: () => false })
+
+// Botão "+" (ou ✓ se já ligado) de uma saída — o coração do estilo BotConversa.
+function AddOut({ nodeId, handleId }: { nodeId: string; handleId: string | null }) {
+  const { onAdd, isConnected } = useContext(Ctx)
+  const connected = isConnected(nodeId, handleId)
+  if (connected) return <span className="text-[13px] font-bold text-emerald-500" title="ligado ao próximo">✓</span>
+  return (
+    <button
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => { e.stopPropagation(); onAdd(nodeId, handleId, e) }}
+      title="Adicionar próximo bloco"
+      className="flex h-5 w-5 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-500 transition hover:bg-emerald-500 hover:text-white"
+    >
+      +
+    </button>
+  )
+}
+
+function Shell({ type, selected, isStart, orphan, children }: { type: BlockType; selected?: boolean; isStart?: boolean; orphan?: boolean; children: React.ReactNode }) {
   const m = blockMeta(type)
   const s = S[type]
   return (
@@ -65,12 +88,16 @@ function Shell({ type, selected, isStart, children }: { type: BlockType; selecte
       style={{ width: NODE_W }}
       className={`relative overflow-hidden rounded-2xl border bg-white shadow-md transition
         before:absolute before:left-0 before:top-0 before:h-full before:w-1.5 before:content-[''] ${s.accent}
-        ${selected ? `border-transparent ring-2 ${s.ring}` : 'border-gray-200'}`}
+        ${orphan ? 'border-red-300 ring-2 ring-red-400/70' : selected ? `border-transparent ring-2 ${s.ring}` : 'border-gray-200'}`}
     >
       <div style={{ height: HEADER_H }} className="flex items-center gap-2 pl-4 pr-3">
         <span className={`flex h-6 w-6 items-center justify-center rounded-lg text-sm ${s.chip}`}>{m.emoji}</span>
         <span className={`text-[13px] font-semibold ${s.label}`}>{m.label}</span>
-        {isStart && <span className="ml-auto rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">início</span>}
+        {orphan ? (
+          <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white" title="Este bloco não está ligado a nada — o fluxo não chega nele">⚠ solto</span>
+        ) : isStart ? (
+          <span className="ml-auto rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">início</span>
+        ) : null}
       </div>
       {children}
     </div>
@@ -94,80 +121,82 @@ function bodyText(t: BlockType, d: NodeData): string {
   }
 }
 
-function NextRow({ type }: { type: BlockType }) {
-  return (
-    <div className="relative flex items-center justify-end gap-1.5 border-t border-gray-100 bg-gray-50/70 px-4 py-2 pr-6 text-[11px] font-semibold text-gray-500">
-      arraste para ligar <span className={S[type].label}>→</span>
-      <Handle type="source" position={Position.Right} className={`${HANDLE} ${S[type].handle}`} />
-    </div>
-  )
-}
+type ExtraData = NodeData & { __start?: boolean; __orphan?: boolean }
 
-// Blocos de uma saída ("próximo") e os terminais (handoff/action, sem saída).
-function SimpleNode({ type, data, selected }: NodeProps) {
+// Blocos de UMA saída ("próximo") e os terminais (handoff/action, sem saída).
+function SimpleNode({ id, type, data, selected }: NodeProps) {
   const t = type as BlockType
-  const d = data as NodeData & { __start?: boolean }
+  const d = data as ExtraData
   const hasNext = t === 'message' || t === 'delay' || t === 'integration' || t === 'image' || t === 'video' || t === 'file' || t === 'audio' || t === 'tag'
   return (
-    <Shell type={t} selected={selected} isStart={d.__start}>
-      <Handle type="target" position={Position.Left} className={`${HANDLE} !bg-gray-300`} />
+    <Shell type={t} selected={selected} isStart={d.__start} orphan={d.__orphan}>
+      <Handle type="target" position={Position.Left} className={`${DOT} !bg-gray-300`} />
       <div className="whitespace-pre-wrap px-4 pb-2.5 pt-1 text-xs leading-relaxed text-gray-600">{bodyText(t, d)}</div>
-      {hasNext ? <NextRow type={t} /> : (
+      {hasNext ? (
+        <div className="relative flex items-center justify-end gap-2 border-t border-gray-100 bg-gray-50/70 px-4 py-2 pr-5">
+          <AddOut nodeId={id} handleId={null} />
+          <Handle type="source" position={Position.Right} className={`${DOT} ${S[t].handle}`} />
+        </div>
+      ) : (
         <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-1.5 text-[11px] font-medium text-gray-400">Fim do fluxo</div>
       )}
     </Shell>
   )
 }
 
-function MenuNode({ data, selected }: NodeProps) {
-  const d = data as NodeData & { __start?: boolean }
+function MenuNode({ id, data, selected }: NodeProps) {
+  const d = data as ExtraData
   const options = d.options ?? []
   return (
-    <Shell type="menu" selected={selected} isStart={d.__start}>
-      <Handle type="target" position={Position.Left} className={`${HANDLE} !bg-gray-300`} />
+    <Shell type="menu" selected={selected} isStart={d.__start} orphan={d.__orphan}>
+      <Handle type="target" position={Position.Left} className={`${DOT} !bg-gray-300`} />
       <div className="overflow-hidden px-4 pb-1.5 pt-0.5 text-xs leading-relaxed text-gray-600" style={{ height: TEXT_H }}>{d.text || 'Pergunta do menu…'}</div>
       {options.map((o, i) => (
-        <div key={o.id} className="relative flex items-center border-t border-gray-100 px-4 text-xs text-gray-700" style={{ height: ROW_H }}>
-          <span className="mr-1.5 flex h-4 w-4 shrink-0 items-center justify-center rounded bg-indigo-100 text-[10px] font-bold text-indigo-700">{i + 1}</span>
-          <span className="truncate">{o.label}</span>
-          <Handle type="source" id={`opt-${o.id}`} position={Position.Right} className={`${HANDLE} !bg-indigo-400`} style={{ top: HEADER_H + TEXT_H + i * ROW_H + ROW_H / 2 }} />
+        <div key={o.id} className="relative flex items-center gap-1.5 border-t border-gray-100 px-4 pr-5 text-xs text-gray-700" style={{ height: ROW_H }}>
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-indigo-100 text-[10px] font-bold text-indigo-700">{i + 1}</span>
+          <span className="flex-1 truncate">{o.label}</span>
+          <AddOut nodeId={id} handleId={`opt-${o.id}`} />
+          <Handle type="source" id={`opt-${o.id}`} position={Position.Right} className={`${DOT} !bg-indigo-400`} style={{ top: HEADER_H + TEXT_H + i * ROW_H + ROW_H / 2 }} />
         </div>
       ))}
     </Shell>
   )
 }
 
-function ConditionNode({ data, selected }: NodeProps) {
-  const d = data as NodeData & { __start?: boolean }
+function ConditionNode({ id, data, selected }: NodeProps) {
+  const d = data as ExtraData
   const info = 38
   return (
-    <Shell type="condition" selected={selected} isStart={d.__start}>
-      <Handle type="target" position={Position.Left} className={`${HANDLE} !bg-gray-300`} />
+    <Shell type="condition" selected={selected} isStart={d.__start} orphan={d.__orphan}>
+      <Handle type="target" position={Position.Left} className={`${DOT} !bg-gray-300`} />
       <div className="overflow-hidden px-4 pb-1.5 pt-0.5 text-xs text-gray-600" style={{ height: info }}>Se contém: <b>“{d.keyword || '—'}”</b></div>
-      <div className="relative flex items-center border-t border-gray-100 px-4 text-xs font-medium text-emerald-600" style={{ height: ROW_H }}>
-        ✅ sim
-        <Handle type="source" id="yes" position={Position.Right} className={`${HANDLE} !bg-emerald-400`} style={{ top: HEADER_H + info + ROW_H / 2 }} />
+      <div className="relative flex items-center gap-1.5 border-t border-gray-100 px-4 pr-5 text-xs font-medium text-emerald-600" style={{ height: ROW_H }}>
+        <span className="flex-1">✅ sim</span>
+        <AddOut nodeId={id} handleId="yes" />
+        <Handle type="source" id="yes" position={Position.Right} className={`${DOT} !bg-emerald-400`} style={{ top: HEADER_H + info + ROW_H / 2 }} />
       </div>
-      <div className="relative flex items-center border-t border-gray-100 px-4 text-xs font-medium text-rose-500" style={{ height: ROW_H }}>
-        🚫 não
-        <Handle type="source" id="no" position={Position.Right} className={`${HANDLE} !bg-rose-400`} style={{ top: HEADER_H + info + ROW_H + ROW_H / 2 }} />
+      <div className="relative flex items-center gap-1.5 border-t border-gray-100 px-4 pr-5 text-xs font-medium text-rose-500" style={{ height: ROW_H }}>
+        <span className="flex-1">🚫 não</span>
+        <AddOut nodeId={id} handleId="no" />
+        <Handle type="source" id="no" position={Position.Right} className={`${DOT} !bg-rose-400`} style={{ top: HEADER_H + info + ROW_H + ROW_H / 2 }} />
       </div>
     </Shell>
   )
 }
 
-function RandomizerNode({ data, selected }: NodeProps) {
-  const d = data as NodeData & { __start?: boolean }
+function RandomizerNode({ id, data, selected }: NodeProps) {
+  const d = data as ExtraData
   const branches = d.branches ?? []
   const info = 32
   return (
-    <Shell type="randomizer" selected={selected} isStart={d.__start}>
-      <Handle type="target" position={Position.Left} className={`${HANDLE} !bg-gray-300`} />
+    <Shell type="randomizer" selected={selected} isStart={d.__start} orphan={d.__orphan}>
+      <Handle type="target" position={Position.Left} className={`${DOT} !bg-gray-300`} />
       <div className="px-4 pb-1.5 pt-0.5 text-xs text-gray-500" style={{ height: info }}>Divide aleatoriamente:</div>
       {branches.map((b, i) => (
-        <div key={b.id} className="relative flex items-center border-t border-gray-100 px-4 text-xs text-gray-700" style={{ height: ROW_H }}>
-          🎲 Caminho {i + 1}
-          <Handle type="source" id={`br-${b.id}`} position={Position.Right} className={`${HANDLE} !bg-fuchsia-400`} style={{ top: HEADER_H + info + i * ROW_H + ROW_H / 2 }} />
+        <div key={b.id} className="relative flex items-center gap-1.5 border-t border-gray-100 px-4 pr-5 text-xs text-gray-700" style={{ height: ROW_H }}>
+          <span className="flex-1">🎲 Caminho {i + 1}</span>
+          <AddOut nodeId={id} handleId={`br-${b.id}`} />
+          <Handle type="source" id={`br-${b.id}`} position={Position.Right} className={`${DOT} !bg-fuchsia-400`} style={{ top: HEADER_H + info + i * ROW_H + ROW_H / 2 }} />
         </div>
       ))}
     </Shell>
@@ -191,7 +220,7 @@ const nodeTypes = {
   randomizer: RandomizerNode,
 }
 
-// Paleta agrupada (barra lateral esquerda).
+// Menu de blocos (aparece no "+", igual BotConversa).
 const GROUPS: { title: string; blocks: BlockType[] }[] = [
   { title: 'Conteúdo', blocks: ['message', 'image', 'video', 'file', 'audio', 'menu'] },
   { title: 'Lógica', blocks: ['condition', 'randomizer', 'delay', 'action', 'tag'] },
@@ -199,6 +228,7 @@ const GROUPS: { title: string; blocks: BlockType[] }[] = [
 ]
 
 type FlowItem = { id: string; name: string; is_active: boolean }
+type AddMenu = { sourceId: string | null; sourceHandle: string | null; x: number; y: number }
 
 export default function Construtor() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
@@ -208,6 +238,7 @@ export default function Construtor() {
   const [allFlows, setAllFlows] = useState<FlowItem[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'saving' | 'saved'>('loading')
+  const [addMenu, setAddMenu] = useState<AddMenu | null>(null)
 
   useEffect(() => {
     ;(async () => {
@@ -227,14 +258,36 @@ export default function Construtor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // O bloco de início é o único sem seta chegando — marca visualmente.
+  // Início = único bloco sem seta chegando. Órfãos = os que o fluxo não alcança.
   const startId = useMemo(() => {
     const targets = new Set(edges.map((e) => e.target))
     return nodes.find((n) => !targets.has(n.id))?.id
   }, [nodes, edges])
+
+  const reachable = useMemo(() => {
+    const adj = new Map<string, string[]>()
+    edges.forEach((e) => { const a = adj.get(e.source) ?? []; a.push(e.target); adj.set(e.source, a) })
+    const seen = new Set<string>()
+    const stack = startId ? [startId] : []
+    while (stack.length) {
+      const id = stack.pop() as string
+      if (seen.has(id)) continue
+      seen.add(id)
+      ;(adj.get(id) ?? []).forEach((t) => stack.push(t))
+    }
+    return seen
+  }, [edges, startId])
+
+  const orphanCount = useMemo(() => nodes.filter((n) => !reachable.has(n.id)).length, [nodes, reachable])
+
   const displayNodes = useMemo(
-    () => nodes.map((n) => ({ ...n, data: { ...(n.data as NodeData), __start: n.id === startId } })),
-    [nodes, startId]
+    () => nodes.map((n) => ({ ...n, data: { ...(n.data as NodeData), __start: n.id === startId, __orphan: !reachable.has(n.id) } })),
+    [nodes, startId, reachable]
+  )
+
+  const isConnected = useCallback(
+    (sourceId: string, sourceHandle: string | null) => edges.some((e) => e.source === sourceId && (e.sourceHandle ?? null) === sourceHandle),
+    [edges]
   )
 
   const onConnect = useCallback(
@@ -249,10 +302,29 @@ export default function Construtor() {
     [setEdges]
   )
 
-  function addBlock(type: BlockType) {
+  const onAdd = useCallback((sourceId: string, sourceHandle: string | null, e: React.MouseEvent) => {
+    setAddMenu({ sourceId, sourceHandle, x: e.clientX, y: e.clientY })
+  }, [])
+
+  // Cria o bloco escolhido no menu e já LIGA na saída de origem.
+  function createFromMenu(type: BlockType) {
+    if (!addMenu) return
+    const src = addMenu.sourceId ? nodes.find((n) => n.id === addMenu.sourceId) : null
+    const pos = src ? { x: src.position.x + 330, y: src.position.y } : { x: 220 + Math.random() * 120, y: 160 + Math.random() * 120 }
     const id = `${type}_${Date.now()}`
-    setNodes((ns) => [...ns, { id, type, position: { x: 220 + Math.random() * 160, y: 120 + Math.random() * 200 }, data: newBlockData(type) }])
+    setNodes((ns) => [...ns, { id, type, position: pos, data: newBlockData(type) }])
+    if (addMenu.sourceId) {
+      const srcId = addMenu.sourceId
+      const srcHandle = addMenu.sourceHandle
+      setEdges((eds) =>
+        addEdge(
+          { id: `e${Date.now()}`, source: srcId, sourceHandle: srcHandle ?? undefined, target: id },
+          eds.filter((e) => !(e.source === srcId && (e.sourceHandle ?? null) === srcHandle))
+        )
+      )
+    }
     setSelectedId(id)
+    setAddMenu(null)
   }
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null
@@ -280,11 +352,7 @@ export default function Construtor() {
       nodes: nodes.map((n) => ({ id: n.id, type: n.type as BlockType, position: n.position, data: n.data as NodeData })),
       edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? null })),
     }
-    await fetch(`/api/flows/${flowId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ definition }),
-    })
+    await fetch(`/api/flows/${flowId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ definition }) })
     setStatus('saved')
     setTimeout(() => setStatus('ready'), 1500)
   }
@@ -298,8 +366,11 @@ export default function Construtor() {
         <h1 className="text-[15px] font-bold text-gray-900">{flowName || 'Construtor'}</h1>
         <span className="text-xs text-gray-300">•</span>
         <span className="text-xs text-gray-400">
-          {status === 'saving' ? 'salvando…' : status === 'saved' ? '✓ salvo' : 'arraste os blocos e ligue os pontinhos'}
+          {status === 'saving' ? 'salvando…' : status === 'saved' ? '✓ salvo' : 'clique no + de cada bloco pra ligar o próximo'}
         </span>
+        {orphanCount > 0 && (
+          <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-[11px] font-semibold text-red-600" title="Blocos que o fluxo não alcança — ligue ou remova">⚠ {orphanCount} bloco{orphanCount > 1 ? 's' : ''} solto{orphanCount > 1 ? 's' : ''}</span>
+        )}
         <div className="ml-auto flex items-center gap-3">
           <a href="/simulador" target="_blank" className="rounded-lg px-3 py-1.5 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800">▶ testar</a>
           <button onClick={save} disabled={status === 'saving' || !flowId} className="rounded-lg bg-emerald-500 px-5 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-600 disabled:opacity-50">
@@ -309,54 +380,37 @@ export default function Construtor() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {/* PALETA DE BLOCOS (barra lateral) */}
-        <aside className="w-56 shrink-0 overflow-y-auto border-r border-gray-200 bg-white p-3">
-          <div className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Blocos</div>
-          {GROUPS.map((g) => (
-            <div key={g.title} className="mb-3">
-              <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300">{g.title}</div>
-              <div className="space-y-1">
-                {g.blocks.map((t) => {
-                  const m = blockMeta(t)
-                  const s = S[t]
-                  return (
-                    <button
-                      key={t}
-                      onClick={() => addBlock(t)}
-                      className={`flex w-full items-center gap-2.5 rounded-xl border border-transparent bg-gray-50 px-2.5 py-2 text-left transition ${s.hover}`}
-                    >
-                      <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${s.chip}`}>{m.emoji}</span>
-                      <span className="text-[13px] font-medium text-gray-700">{m.label}</span>
-                      <span className="ml-auto text-gray-300">+</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
-        </aside>
-
         {/* CANVAS */}
-        <div className="h-full flex-1">
-          <ReactFlow
-            nodes={displayNodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            onNodeClick={(_, node) => setSelectedId(node.id)}
-            onPaneClick={() => setSelectedId(null)}
-            defaultEdgeOptions={{ type: 'smoothstep', animated: true, style: { stroke: '#10b981', strokeWidth: 2.5 }, markerEnd: { type: MarkerType.ArrowClosed, color: '#10b981', width: 18, height: 18 } }}
-            connectionLineType={ConnectionLineType.SmoothStep}
-            connectionLineStyle={{ stroke: '#10b981', strokeWidth: 2.5, strokeDasharray: '6 4' }}
-            fitView
-            proOptions={{ hideAttribution: true }}
+        <div className="relative h-full flex-1">
+          <Ctx.Provider value={{ onAdd, isConnected }}>
+            <ReactFlow
+              nodes={displayNodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onNodeClick={(_, node) => setSelectedId(node.id)}
+              onPaneClick={() => { setSelectedId(null); setAddMenu(null) }}
+              defaultEdgeOptions={{ type: 'smoothstep', style: { stroke: '#94a3b8', strokeWidth: 2 }, markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8', width: 16, height: 16 } }}
+              connectionLineType={ConnectionLineType.SmoothStep}
+              connectionLineStyle={{ stroke: '#10b981', strokeWidth: 2.5, strokeDasharray: '6 4' }}
+              fitView
+              proOptions={{ hideAttribution: true }}
+            >
+              <Background variant={BackgroundVariant.Dots} gap={22} size={1.5} color="#e5e7eb" />
+              <Controls showInteractive={false} />
+              <MiniMap zoomable pannable className="!rounded-xl" />
+            </ReactFlow>
+          </Ctx.Provider>
+
+          {/* Botão flutuante: adicionar bloco solto (ou o 1º) */}
+          <button
+            onClick={(e) => setAddMenu({ sourceId: null, sourceHandle: null, x: e.clientX, y: e.clientY })}
+            className="absolute bottom-5 left-5 z-10 flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-200 hover:bg-emerald-600"
           >
-            <Background variant={BackgroundVariant.Dots} gap={22} size={1.5} color="#d1d5db" />
-            <Controls showInteractive={false} />
-            <MiniMap zoomable pannable className="!rounded-xl" />
-          </ReactFlow>
+            <span className="text-lg leading-none">+</span> {nodes.length === 0 ? 'Adicionar 1º bloco' : 'Bloco solto'}
+          </button>
         </div>
 
         {/* PAINEL DE EDIÇÃO */}
@@ -365,12 +419,12 @@ export default function Construtor() {
             <div className="text-sm text-gray-500">
               <p className="mb-3 font-semibold text-gray-700">Editando: {flowName || '—'}</p>
               <div className="space-y-2 rounded-xl bg-gray-50 p-3 text-[13px]">
-                <p>👈 Clique num <b>bloco</b> da esquerda pra adicionar.</p>
-                <p>🔗 Ligue arrastando do <b>pontinho da direita</b> de um bloco até a <b>esquerda</b> do próximo.</p>
-                <p>✏️ Clique num bloco no quadro pra editar aqui.</p>
+                <p>➕ Clique no <b>+</b> de um bloco pra criar e <b>ligar</b> o próximo automaticamente.</p>
+                <p>✏️ Clique num bloco pra <b>editar</b> aqui.</p>
+                <p>🔴 Bloco com selo <b>“solto”</b> não está ligado a nada — ligue ou remova.</p>
                 <p>💾 <b>Salvar</b> e testar em <b>▶ testar</b>.</p>
               </div>
-              <p className="mt-3 rounded-lg bg-amber-50 p-2.5 text-[12px] text-amber-700">💡 Depois de todo <b>Menu</b>, ligue um bloco <b>⚡ Ação → Reiniciar automação</b> pra encerrar após o clique (evita spam e risco de ban).</p>
+              <p className="mt-3 rounded-lg bg-amber-50 p-2.5 text-[12px] text-amber-700">💡 No fim de cada opção de <b>Menu</b>, coloque um <b>⚡ Ação → Reiniciar automação</b> pra encerrar após o clique (anti-spam).</p>
             </div>
           )}
 
@@ -414,7 +468,7 @@ export default function Construtor() {
                     </div>
                     <button onClick={() => updateData(selected.id, { options: [...menuOptions, { id: crypto.randomUUID().slice(0, 6), label: `Opção ${menuOptions.length + 1}` } as MenuOption] })} className="mt-2 text-sm font-medium text-indigo-600 hover:underline">+ adicionar opção</button>
                   </div>
-                  <p className="rounded-lg bg-amber-50 p-2.5 text-[12px] text-amber-700">💡 Ligue um bloco <b>⚡ Ação → Reiniciar automação</b> no fim de cada opção pra encerrar após o clique (anti-spam).</p>
+                  <p className="rounded-lg bg-amber-50 p-2.5 text-[12px] text-amber-700">💡 No <b>+</b> de cada opção, ligue um <b>⚡ Ação → Reiniciar automação</b> pra encerrar após o clique (anti-spam).</p>
                 </>
               )}
 
@@ -452,7 +506,7 @@ export default function Construtor() {
                     <span className="text-xs font-medium text-gray-500">Se a mensagem contém…</span>
                     <input value={selData?.keyword ?? ''} onChange={(e) => updateData(selected.id, { keyword: e.target.value })} placeholder="ex: convênio" className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm outline-none focus:border-sky-500" />
                   </label>
-                  <p className="text-[11px] text-gray-400">Saída <b className="text-emerald-600">✅ sim</b> se conter a palavra; <b className="text-rose-600">🚫 não</b> caso contrário. Ligue as duas no quadro.</p>
+                  <p className="text-[11px] text-gray-400">Saída <b className="text-emerald-600">✅ sim</b> se conter a palavra; <b className="text-rose-600">🚫 não</b> caso contrário. Ligue as duas.</p>
                 </>
               )}
 
@@ -571,6 +625,33 @@ export default function Construtor() {
           )}
         </aside>
       </div>
+
+      {/* MENU DE BLOCOS (aparece no "+") */}
+      {addMenu && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setAddMenu(null)} />
+          <div
+            className="fixed z-50 max-h-[70vh] w-56 overflow-y-auto rounded-2xl border border-gray-200 bg-white p-2 shadow-2xl"
+            style={{ left: Math.min(addMenu.x, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 240), top: Math.min(addMenu.y, (typeof window !== 'undefined' ? window.innerHeight : 800) - 360) }}
+          >
+            <div className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{addMenu.sourceId ? 'Ligar a…' : 'Adicionar bloco'}</div>
+            {GROUPS.map((g) => (
+              <div key={g.title} className="mb-1">
+                <div className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300">{g.title}</div>
+                {g.blocks.map((t) => {
+                  const m = blockMeta(t)
+                  return (
+                    <button key={t} onClick={() => createFromMenu(t)} className={`flex w-full items-center gap-2.5 rounded-xl border border-transparent px-2 py-1.5 text-left transition ${S[t].hover}`}>
+                      <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${S[t].chip}`}>{m.emoji}</span>
+                      <span className="text-[13px] font-medium text-gray-700">{m.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }
