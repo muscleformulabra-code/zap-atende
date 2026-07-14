@@ -20,25 +20,40 @@ const path = require('path')
 const http = require('http')
 const fs = require('fs')
 const pino = require('pino')
-const { spawn } = require('child_process')
-// ffmpeg do SISTEMA (instalado via nixpacks/apt). Se não existir, o spawn
-// dispara 'error' e a conversão cai no fallback — nunca quebra o boot.
+const { spawn, execSync } = require('child_process')
+const os = require('os')
+// ffmpeg do SISTEMA (instalado via nixpacks/apt).
 const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'
 
+// Checa no boot se o ffmpeg está disponível (aparece no /debug).
+let ffmpegInfo = 'não checado'
+try {
+  ffmpegInfo = execSync(`${ffmpegPath} -version`, { timeout: 5000 }).toString().split('\n')[0]
+} catch (e) {
+  ffmpegInfo = 'INDISPONÍVEL: ' + (e.message || e)
+}
+console.log('🎬 ffmpeg:', ffmpegInfo)
+
 // Converte o áudio gravado no navegador (webm/opus) pra OGG/Opus — formato de
-// NOTA DE VOZ do WhatsApp. Sem isso o áudio não toca no celular do paciente.
+// NOTA DE VOZ do WhatsApp. Usa arquivo temporário (WebM não converte bem por
+// pipe, precisa poder "buscar" no arquivo).
 function transcodeToOggOpus(inputBuffer) {
   return new Promise((resolve, reject) => {
-    if (!ffmpegPath) return reject(new Error('ffmpeg indisponível'))
-    const ff = spawn(ffmpegPath, ['-i', 'pipe:0', '-c:a', 'libopus', '-b:a', '32k', '-ac', '1', '-f', 'ogg', 'pipe:1'])
-    const out = []
-    ff.stdout.on('data', (d) => out.push(d))
-    ff.stderr.on('data', () => {}) // silencia log do ffmpeg
-    ff.on('error', reject)
-    ff.on('close', (code) => (code === 0 && out.length ? resolve(Buffer.concat(out)) : reject(new Error('ffmpeg saiu ' + code))))
-    ff.stdin.on('error', () => {})
-    ff.stdin.write(inputBuffer)
-    ff.stdin.end()
+    const base = path.join(os.tmpdir(), `wa_${Date.now()}_${Math.floor(Math.random() * 1e6)}`)
+    const inPath = `${base}.webm`
+    const outPath = `${base}.ogg`
+    const cleanup = () => { try { fs.unlinkSync(inPath) } catch {} try { fs.unlinkSync(outPath) } catch {} }
+    fs.writeFile(inPath, inputBuffer, (werr) => {
+      if (werr) return reject(werr)
+      const ff = spawn(ffmpegPath, ['-y', '-i', inPath, '-c:a', 'libopus', '-b:a', '32k', '-ac', '1', outPath])
+      let stderr = ''
+      ff.stderr.on('data', (d) => { stderr += d.toString() })
+      ff.on('error', (e) => { cleanup(); reject(e) })
+      ff.on('close', (code) => {
+        if (code !== 0) { cleanup(); return reject(new Error('ffmpeg ' + code + ': ' + stderr.slice(-300))) }
+        fs.readFile(outPath, (rerr, buf) => { cleanup(); rerr ? reject(rerr) : resolve(buf) })
+      })
+    })
   })
 }
 
@@ -563,7 +578,7 @@ http
       const cid = companyFromReq(req)
       const s = getSession(cid)
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      return res.end(JSON.stringify({ company: cid, connected: !!s.sock, whatsapp: s.waConnected, baileys: BAILEYS_VERSION, keyInfo, sessions: [...sessions.keys()], ...s.diag }))
+      return res.end(JSON.stringify({ company: cid, connected: !!s.sock, whatsapp: s.waConnected, baileys: BAILEYS_VERSION, ffmpeg: ffmpegInfo, keyInfo, sessions: [...sessions.keys()], ...s.diag }))
     }
 
     // Conectar/gerar QR de uma empresa (pareia um número novo). /connect?company=X
