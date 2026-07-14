@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { getContactJid, setHandoff } from '@/lib/db'
 import { getUserName } from '@/lib/auth'
-import { membershipByEmail } from '@/lib/company'
+import { currentCompanyId, membershipByEmail, membershipByEmailCompany } from '@/lib/company'
 
 // Endereço do conector (WhatsApp). Padrão = conector na nuvem (Railway); pode
 // sobrescrever com a env CONNECTOR_URL (ex.: http://localhost:3333 em dev local).
@@ -22,9 +22,11 @@ export async function POST(req: Request) {
   // Prefixa com o nome do atendente (ex.: "*Isabella Martins:*\nmensagem") pra
   // o paciente saber com quem está falando — igual BotConversa. Usa o nome do
   // PERFIL (membership); se não tiver, cai no metadata/derivado do e-mail.
-  const membership = sentBy ? await membershipByEmail(sentBy).catch(() => null) : null
+  // Empresa ATIVA (cookie za_company) — NÃO o vínculo mais antigo do atendente,
+  // senão o envio mira na empresa errada (ex.: manda pela CMF estando na Ricco).
+  const company = await currentCompanyId()
+  const membership = sentBy ? await (company ? membershipByEmailCompany(sentBy, company) : membershipByEmail(sentBy)).catch(() => null) : null
   const name = membership?.name || (sentBy ? await getUserName(sentBy).catch(() => null) : null)
-  const company = membership?.company_id ?? null // empresa do atendente → sessão certa
   const outgoing = name ? `*${name}:*\n${text}` : text
 
   // Atendente assumiu → bot para de responder esse contato.
