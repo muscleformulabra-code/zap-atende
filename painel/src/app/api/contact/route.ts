@@ -12,8 +12,8 @@ export async function GET(req: Request) {
 
 // Atualiza nome / observação do contato (editado na ficha do inbox).
 export async function PATCH(req: Request) {
-  const { contactId, name, note } = await req.json().catch(() => ({}))
+  const { contactId, name, note, is_team } = await req.json().catch(() => ({}))
   if (!contactId) return NextResponse.json({ error: 'contactId obrigatório' }, { status: 400 })
-  await updateContact(contactId, { name, note })
+  await updateContact(contactId, { name, note, is_team })
   return NextResponse.json({ ok: true })
 }

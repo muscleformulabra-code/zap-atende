@@ -57,6 +57,7 @@ export type Conversation = {
   status: string
   tags: string[]
   assigned_to: string | null
+  is_team: boolean
 }
 
 export async function getConversations(): Promise<Conversation[]> {
@@ -68,7 +69,7 @@ export async function getConversations(): Promise<Conversation[]> {
   const smap = new Map((sessions as { contact_id: string; status: string; assigned_to: string | null }[]).map((s) => [s.contact_id, s]))
   return (convs as (Omit<Conversation, 'status' | 'tags' | 'assigned_to'> & { tags?: string[] })[]).map((c) => {
     const s = smap.get(c.contact_id)
-    return { ...c, phone: stripDevice(c.phone), tags: c.tags ?? [], status: s?.status ?? 'active', assigned_to: s?.assigned_to ?? null }
+    return { ...c, phone: stripDevice(c.phone), tags: c.tags ?? [], is_team: (c as { is_team?: boolean }).is_team ?? false, status: s?.status ?? 'active', assigned_to: s?.assigned_to ?? null }
   })
 }
 
@@ -254,14 +255,16 @@ export type ContactCard = {
   status: string
   assigned_to: string | null
   note: string | null
+  is_team: boolean
 }
 
 // Atualiza campos editáveis do contato (nome, observação) pela ficha do inbox.
-export async function updateContact(contactId: string, patch: { name?: string | null; note?: string | null }): Promise<void> {
+export async function updateContact(contactId: string, patch: { name?: string | null; note?: string | null; is_team?: boolean }): Promise<void> {
   const c = await cid()
   const body: Record<string, unknown> = {}
   if (patch.name !== undefined) body.name = (patch.name || '').trim() || null
   if (patch.note !== undefined) body.note = patch.note ?? null
+  if (patch.is_team !== undefined) body.is_team = patch.is_team
   await rest(`contacts?id=eq.${contactId}&company_id=eq.${c}`, {
     method: 'PATCH',
     headers: { Prefer: 'return=minimal' },
@@ -448,7 +451,7 @@ export async function getContactCard(contactId: string): Promise<ContactCard | n
   const contact = rows[0]
   if (!contact) return null
   const sess = await (await rest(`flow_sessions?contact_id=eq.${contactId}&select=status,assigned_to`)).json()
-  return { ...contact, phone: stripDevice(contact.phone), avatar_url: contact.avatar_url ?? null, status: sess[0]?.status ?? 'active', assigned_to: sess[0]?.assigned_to ?? null }
+  return { ...contact, phone: stripDevice(contact.phone), avatar_url: contact.avatar_url ?? null, is_team: contact.is_team ?? false, status: sess[0]?.status ?? 'active', assigned_to: sess[0]?.assigned_to ?? null }
 }
 
 export type Stats = {

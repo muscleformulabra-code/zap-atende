@@ -14,9 +14,10 @@ type Conversa = {
   status: string
   tags: string[]
   assigned_to: string | null
+  is_team: boolean
 }
 type Msg = { id: string; from_me: boolean; text: string | null; sent_at: string | null; media_url?: string | null; media_type?: string | null; wa_message_id?: string | null }
-type Card = { id: string; name: string | null; phone: string | null; jid: string; avatar_url: string | null; created_at: string; status: string; assigned_to: string | null; note: string | null }
+type Card = { id: string; name: string | null; phone: string | null; jid: string; avatar_url: string | null; created_at: string; status: string; assigned_to: string | null; note: string | null; is_team: boolean }
 type Attendant = { id: string; email: string; name: string | null }
 type FlowItem = { id: string; name: string; is_active?: boolean }
 
@@ -55,7 +56,7 @@ const STATUS: Record<string, { label: string; badge: string; dot: string }> = {
 
 const EMOJIS = ['😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😉', '😎', '🤗', '🤔', '😅', '🙏', '👍', '👎', '👏', '🙌', '💪', '👌', '🤝', '❤️', '🔥', '✨', '🎉', '✅', '❌', '⚠️', '💰', '💳', '📅', '🕐', '📍', '📱', '💬', '😢', '😭', '😡', '🥰', '😴', '🤒']
 
-type Tab = 'abertas' | 'concluidas' | 'todas'
+type Tab = 'abertas' | 'concluidas' | 'todas' | 'equipe'
 
 export default function Inbox() {
   const [convs, setConvs] = useState<Conversa[]>([])
@@ -333,12 +334,12 @@ export default function Inbox() {
     try { mediaRecRef.current?.stop() } catch {}
   }
 
-  async function concluirTodas() {
-    const abertas = convs.filter((c) => c.status !== 'done').length
-    if (!abertas) return
-    if (!confirm(`Concluir todas as ${abertas} conversas abertas?\n\nElas somem das "Abertas" e vão pra "Concluídas". Dá pra reabrir depois. Se o paciente mandar mensagem de novo, a conversa reabre sozinha.`)) return
-    await fetch('/api/conclude-all', { method: 'POST' }).catch(() => {})
-    loadConvs()
+  async function marcarEquipe() {
+    if (!sel) return
+    const novo = !card?.is_team
+    setCard((c) => (c ? { ...c, is_team: novo } : c))
+    setConvs((list) => list.map((x) => (x.contact_id === sel.contact_id ? { ...x, is_team: novo } : x)))
+    await fetch('/api/contact', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contactId: sel.contact_id, is_team: novo }) }).catch(() => {})
   }
 
   async function apagarMsg(m: Msg) {
@@ -376,7 +377,13 @@ export default function Inbox() {
   const myName = team.find((a) => (a.email || '').toLowerCase() === (myEmail || '').toLowerCase())?.name || myEmail?.split('@')[0] || 'Eu'
   const allTags = [...new Set(convs.flatMap((c) => c.tags || []))].sort()
   const filtered = convs
-    .filter((c) => (tab === 'todas' ? true : tab === 'concluidas' ? c.status === 'done' : c.status !== 'done'))
+    .filter((c) => {
+      // Aba Equipe = só contatos marcados como equipe. Demais abas = só
+      // leads/pacientes (esconde a equipe), com o filtro de status normal.
+      if (tab === 'equipe') return c.is_team
+      if (c.is_team) return false
+      return tab === 'todas' ? true : tab === 'concluidas' ? c.status === 'done' : c.status !== 'done'
+    })
     .filter((c) => (filtAssign === 'meus' ? c.assigned_to === myName : filtAssign === 'nao' ? !c.assigned_to : true))
     .filter((c) => (filtTag ? (c.tags || []).includes(filtTag) : true))
     .filter((c) => {
@@ -384,7 +391,8 @@ export default function Inbox() {
       if (!q) return true
       return (c.name ?? '').toLowerCase().includes(q) || (c.phone ?? '').includes(q)
     })
-  const abertasCount = convs.filter((c) => c.status !== 'done').length
+  const abertasCount = convs.filter((c) => !c.is_team && c.status !== 'done').length
+  const equipeCount = convs.filter((c) => c.is_team).length
   const nFiltros = (filtAssign !== 'todos' ? 1 : 0) + (filtTag ? 1 : 0)
   const curStatus = card?.status ?? sel?.status ?? 'active'
   const assignedTo = card?.assigned_to ?? null
@@ -396,7 +404,7 @@ export default function Inbox() {
         <div className="border-b border-gray-100 px-4 pb-3 pt-3">
           <div className="mb-2 flex items-center justify-between">
             <div className="flex gap-1 text-xs">
-              {([['abertas', `Abertas (${abertasCount})`], ['concluidas', 'Concluídas'], ['todas', 'Todas']] as [Tab, string][]).map(([k, label]) => (
+              {([['abertas', `Abertas (${abertasCount})`], ['concluidas', 'Concluídas'], ['todas', 'Todas'], ['equipe', `👥 Equipe${equipeCount ? ` (${equipeCount})` : ''}`]] as [Tab, string][]).map(([k, label]) => (
                 <button key={k} onClick={() => setTab(k)} className={`rounded-lg px-2.5 py-1 font-medium ${tab === k ? 'bg-emerald-100 text-emerald-700' : 'text-gray-500 hover:bg-gray-100'}`}>{label}</button>
               ))}
             </div>
@@ -426,9 +434,6 @@ export default function Inbox() {
               )}
             </div>
           </div>
-          {tab === 'abertas' && abertasCount > 0 && (
-            <button onClick={concluirTodas} className="mt-2 w-full rounded-lg border border-emerald-200 bg-emerald-50 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100">✓ Concluir todas as abertas ({abertasCount})</button>
-          )}
           {/* busca */}
           <div className="relative mt-2.5">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.3-4.3" /></svg>
@@ -620,6 +625,13 @@ export default function Inbox() {
               </button>
             )}
             <Avatar name={sel.name} phone={sel.phone} src={card?.avatar_url} className="h-24 w-24 text-2xl" />
+            <button
+              onClick={marcarEquipe}
+              title="Contatos da Equipe ficam separados dos leads, na aba 👥 Equipe do inbox"
+              className={`mt-3 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition ${card?.is_team ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'border border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+            >
+              👥 {card?.is_team ? 'É da Equipe ✓ (clique pra tirar)' : 'Marcar como Equipe'}
+            </button>
           </div>
 
           {/* Atendimento está [status] [ação] */}
