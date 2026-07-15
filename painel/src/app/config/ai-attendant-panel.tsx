@@ -165,6 +165,21 @@ export default function AiAttendantPanel() {
         </div>
       </Section>
 
+      <Section title="Agenda dos profissionais" hint="Quem atende em cada dia. A IA usa isso pra responder “quem atende na terça?” — mas NÃO confirma horário (isso é do atendente).">
+        <div className="space-y-2">
+          {c.weeklyRoster.map((d, i) => (
+            <div key={i} className="flex gap-2 rounded-xl border border-gray-100 bg-gray-50/50 p-2">
+              <div className="grid flex-1 gap-2 sm:grid-cols-[minmax(0,10rem)_1fr]">
+                <input value={d.day} onChange={(e) => up('weeklyRoster', c.weeklyRoster.map((x, j) => (j === i ? { ...x, day: e.target.value } : x)))} placeholder="Dia (ex.: Terça-feira)" className={input} />
+                <input value={d.profs} onChange={(e) => up('weeklyRoster', c.weeklyRoster.map((x, j) => (j === i ? { ...x, profs: e.target.value } : x)))} placeholder="Quem atende (ex.: Dr. Caio Vinhal e Dra. Luiza de Souza)" className={input} />
+              </div>
+              <button onClick={() => up('weeklyRoster', c.weeklyRoster.filter((_, j) => j !== i))} className="shrink-0 rounded-lg border border-gray-200 px-2 text-gray-400 hover:bg-red-50 hover:text-red-500">✕</button>
+            </div>
+          ))}
+          <button onClick={() => up('weeklyRoster', [...c.weeklyRoster, { day: '', profs: '' }])} className="text-xs font-semibold text-emerald-600 hover:underline">+ adicionar dia</button>
+        </div>
+      </Section>
+
       <Section title="Serviços" hint="Procedimentos que a clínica oferece.">
         <div className="space-y-2">
           {c.services.map((sv, i) => (

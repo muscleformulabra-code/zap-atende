@@ -9,6 +9,7 @@
 export type AiProfessional = { name: string; specialty: string; notes?: string }
 export type AiService = { name: string; desc?: string }
 export type AiFaq = { q: string; a: string }
+export type AiRosterDay = { day: string; profs: string } // agenda: quem atende em cada dia
 
 // Horário de funcionamento (pra saber se está aberto e pra exibir).
 export type AiHours = {
@@ -35,6 +36,7 @@ export type AiAttendant = {
   }
   hours: AiHours
   professionals: AiProfessional[]
+  weeklyRoster: AiRosterDay[] // quais profissionais atendem em cada dia da semana
   services: AiService[]
   faq: AiFaq[]
   pricingPolicy: string // instrução sobre preços (ex.: "nunca cravar valor")
@@ -80,6 +82,14 @@ export function defaultRiccoOdonto(): AiAttendant {
       { name: 'Dra. Luiza de Souza', specialty: 'Prótese e Dentística', notes: 'DSD, facetas e lentes, coroas' },
       { name: 'Dra. Rayssa Guimarães', specialty: 'Ortodontia e Odontopediatria', notes: 'aparelhos fixos, alinhadores, atendimento infantil e adulto' },
       { name: 'Dr. Leonardo Cruz', specialty: 'Cirurgia Oral e Implantes', notes: 'implantodontia, extração de sisos, prótese sobre implante' },
+    ],
+    weeklyRoster: [
+      { day: 'Segunda-feira', profs: 'Dra. Natália Akson e Dr. Thauan Lafayette' },
+      { day: 'Terça-feira', profs: 'Dr. Caio Vinhal e Dra. Luiza de Souza' },
+      { day: 'Quarta-feira', profs: 'Dra. Natália Akson e Dr. Thauan Lafayette' },
+      { day: 'Quinta-feira', profs: 'Dr. Caio Vinhal e Dra. Luiza de Souza' },
+      { day: 'Sexta-feira', profs: 'Dra. Luiza de Souza e Dr. Leonardo Cruz' },
+      { day: 'Sábado', profs: 'Dra. Maryana Nunes e Dra. Rayssa Guimarães' },
     ],
     services: [
       { name: 'Implantes Dentários', desc: 'unitários, múltiplos, All-on-4 e carga imediata, com planejamento por tomografia' },
@@ -143,6 +153,7 @@ export function normalizeAi(raw: Partial<AiAttendant> | null | undefined): AiAtt
     },
     hours: r.hours || d.hours,
     professionals: Array.isArray(r.professionals) ? r.professionals : d.professionals,
+    weeklyRoster: Array.isArray(r.weeklyRoster) ? r.weeklyRoster : d.weeklyRoster,
     services: Array.isArray(r.services) ? r.services : d.services,
     faq: Array.isArray(r.faq) ? r.faq : d.faq,
     pricingPolicy: r.pricingPolicy ?? d.pricingPolicy,
@@ -185,6 +196,7 @@ export function hoursText(h: AiHours): string {
 // ── Monta o system prompt (o "cérebro") a partir dos dados editáveis ──
 export function buildAiPrompt(c: AiAttendant): string {
   const profs = c.professionals.map((p) => `- ${p.name} — ${p.specialty}${p.notes ? ` (${p.notes})` : ''}`).join('\n') || '(não informado)'
+  const roster = c.weeklyRoster.map((d) => `- ${d.day}: ${d.profs}`).join('\n') || '(não informado)'
   const servs = c.services.map((s) => `- ${s.name}${s.desc ? `: ${s.desc}` : ''}`).join('\n') || '(não informado)'
   const faq = c.faq.map((f) => `P: ${f.q}\nR: ${f.a}`).join('\n\n') || '(sem perguntas frequentes)'
   const fields = c.handoff.scheduleFields.map((f) => `- ${f}`).join('\n')
@@ -205,7 +217,8 @@ REGRAS:
 - ${c.pricingPolicy}
 - REGRA CRÍTICA sobre AGENDAMENTO: você NUNCA confirma, nega ou negocia dias e horários (ex.: se o paciente perguntar "sexta às 8h30 pode?", NÃO responda que pode ou não). Quem define e confirma dia/horário é o ATENDENTE HUMANO. Se o paciente sugerir ou perguntar um horário, diga que vai anotar os dados e a equipe confirma os dias e horários disponíveis. Você apenas COLETA os dados de agendamento (abaixo) e passa pro humano — nunca marque nada você mesma.
 - RECRUTAMENTO / VAGAS: se a pessoa demonstrar interesse em TRABALHAR na clínica, fazer parte da equipe, enviar currículo, se candidatar a uma vaga ou falar com o RH/responsável por contratações, NÃO trate recrutamento por aqui. Agradeça o interesse com simpatia e encaminhe para o formulário oficial "Trabalhe Conosco": ${c.clinic.careersUrl || '(não configurado)'}. Diga que é lá que ela cadastra os dados e anexa o currículo, e que a equipe de recrutamento avalia por lá. NÃO faça handoff por causa disso (a menos que ela insista muito em falar com um humano). ${c.clinic.careersUrl ? '' : '(Se não houver link configurado, apenas peça que acompanhe as redes sociais da clínica.)'}
-- REGRA CRÍTICA sobre profissionais: NUNCA atribua um procedimento a um único dentista e NUNCA diga frases como "o dentista responsável por isso é o Dr. X". Vários profissionais da equipe fazem cada procedimento. Se o paciente perguntar QUAL dentista faz, responda que a equipe tem vários especialistas capacitados e que o profissional ideal para o caso dele é definido na avaliação, SEM citar um nome. Só mencione um profissional específico se o paciente pedir explicitamente por aquela pessoa (ex.: "quero marcar com a Dra. Fulana"). Ignore, para essa decisão, as observações de cada profissional na lista abaixo: elas são só referência interna, não significam exclusividade.
+- REGRA CRÍTICA sobre PROCEDIMENTOS x profissional: NUNCA atribua um PROCEDIMENTO a um único dentista e NUNCA diga frases como "o dentista responsável por clareamento é o Dr. X". Vários profissionais da equipe fazem cada procedimento. Se o paciente perguntar QUAL dentista faz TAL procedimento, responda que a equipe tem vários especialistas capacitados e que o profissional ideal para o caso dele é definido na avaliação, SEM citar um nome. Ignore, para essa decisão, as observações de cada profissional na lista de profissionais: elas são só referência interna, não significam exclusividade.
+- AGENDA por DIA (diferente da regra acima): se o paciente perguntar QUEM ATENDE em um dia específico da semana (ex.: "quem atende na terça?"), você PODE e DEVE responder com os nomes, usando a AGENDA DOS PROFISSIONAIS abaixo. Conhecer a agenda e os nomes é esperado. Isso NÃO é atribuir procedimento a ninguém. Você continua NÃO confirmando dia/horário de consulta (isso é do atendente humano): se o paciente quiser marcar, diga que anota os dados e a equipe confirma o melhor horário. Se ele perguntar por um dia que não está na agenda, diga com naturalidade que nesse dia não há atendimento e ofereça os dias em que a clínica atende.
 
 COMO CONDUZIR A CONVERSA (com energia, sem ser seca):
 - Responda com ENTUSIASMO e segurança (sem ser falsa ou insistente): valorize o resultado, mostre os benefícios do tratamento e transmita confiança na clínica.
@@ -224,6 +237,9 @@ Pagamento: ${c.clinic.payment}${c.clinic.operationalNote ? `\nAviso importante: 
 
 ─── PROFISSIONAIS ───
 ${profs}
+
+─── AGENDA DOS PROFISSIONAIS (quem atende em cada dia) ───
+${roster}
 
 ─── SERVIÇOS ───
 ${servs}
