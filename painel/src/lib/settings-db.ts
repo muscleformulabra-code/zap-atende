@@ -2,6 +2,7 @@
 
 import { currentCompanyId, SEED_COMPANY_ID } from './company'
 import { normalizeAi, type AiAttendant } from './ai-attendant'
+import { normalizeAntiban, type Antiban } from './antiban'
 
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY
@@ -33,6 +34,7 @@ export type Settings = {
   media_flow_id: string | null   // fluxo padrão para mídia
   call_reject_enabled: boolean   // recusar ligações + avisar por mensagem
   call_reject_message: string | null // texto do aviso (vazio = padrão do conector)
+  antiban: Antiban               // humanização dos envios (sempre normalizado)
 }
 
 export async function getSettings(companyId?: string): Promise<Settings> {
@@ -40,7 +42,7 @@ export async function getSettings(companyId?: string): Promise<Settings> {
   const res = await fetch(`${REST}/settings?company_id=eq.${c}&select=*&limit=1`, { headers: H, cache: 'no-store' })
   if (!res.ok) throw new Error(`getSettings ${res.status}: ${await res.text()}`)
   const rows = await res.json()
-  if (rows[0]) return rows[0]
+  if (rows[0]) return withAntiban(rows[0])
   // Empresa nova ainda sem linha de configurações → cria com os padrões.
   const created = await fetch(`${REST}/settings`, {
     method: 'POST',
@@ -48,8 +50,16 @@ export async function getSettings(companyId?: string): Promise<Settings> {
     body: JSON.stringify({ company_id: c }),
     cache: 'no-store',
   })
-  if (created.ok) return (await created.json())[0]
-  return rows[0]
+  if (created.ok) return withAntiban((await created.json())[0])
+  return withAntiban(rows[0])
+}
+
+// Garante que TODA leitura de settings traga a config anti-ban normalizada,
+// mesmo que a coluna esteja nula ou ainda não migrada. Assim o conector e a
+// UI sempre recebem os padrões seguros.
+function withAntiban(row: (Settings & { antiban?: Partial<Antiban> | null }) | undefined): Settings {
+  const r = (row || {}) as Settings & { antiban?: Partial<Antiban> | null }
+  return { ...(r as Settings), antiban: normalizeAntiban(r.antiban) }
 }
 
 // ── Chave da OpenAI (Assistente de Leads) — SEMPRE server-side ──
@@ -161,6 +171,7 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
     delete (rest as Partial<Settings>).media_flow_id
     delete (rest as Partial<Settings>).call_reject_enabled
     delete (rest as Partial<Settings>).call_reject_message
+    delete (rest as Partial<Settings>).antiban
     if (Object.keys(rest).length > 0) {
       res = await put(rest)
       if (!res.ok) throw new Error(`saveSettings ${res.status}: ${await res.text()}`)

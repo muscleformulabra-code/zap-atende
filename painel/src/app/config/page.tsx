@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import EquipePanel from '@/components/equipe-panel'
 import LabelsPanel from './labels-panel'
 import QuickRepliesPanel from './quick-replies-panel'
 import FlowDefaultsPanel from './flow-defaults-panel'
 import IntegrationsPanel from './integrations-panel'
 import AiAttendantPanel from './ai-attendant-panel'
+import { type Antiban } from '@/lib/antiban'
 
 type Settings = {
   bot_enabled: boolean
@@ -15,6 +16,7 @@ type Settings = {
   max_delay_ms: number
   call_reject_enabled: boolean
   call_reject_message: string | null
+  antiban: Antiban
 }
 
 const CALL_MSG_PADRAO =
@@ -43,6 +45,7 @@ export default function Config() {
   }, [])
 
   function up(patch: Partial<Settings>) { setS((cur) => (cur ? { ...cur, ...patch } : cur)) }
+  function setAb(patch: Partial<Antiban>) { setS((cur) => (cur ? { ...cur, antiban: { ...cur.antiban, ...patch } } : cur)) }
 
   async function save() {
     if (!s) return
@@ -111,13 +114,50 @@ export default function Config() {
                 </section>
                 <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
                   <div className="font-medium text-gray-800">🛡️ Salvaguardas anti-ban</div>
-                  <div className="mt-1 text-xs text-gray-500">O bot espera um tempo aleatório entre respostas (parece humano, evita bloqueio).</div>
+                  <div className="mt-1 text-xs text-gray-500">Deixa os envios do robô com cara de humano (parece gente digitando, evita bloqueio). Só afeta o robô/IA — mensagem sua no inbox sai na hora.</div>
+
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-                    <span className="text-gray-500">entre</span>
+                    <span className="text-gray-500">Espera antes de responder: entre</span>
                     <input type="number" min={300} max={20000} step={100} value={s.min_delay_ms} onChange={(e) => up({ min_delay_ms: Number(e.target.value) })} className="w-24 rounded-lg border border-gray-300 p-1.5" />
                     <span className="text-gray-500">e</span>
                     <input type="number" min={500} max={30000} step={100} value={s.max_delay_ms} onChange={(e) => up({ max_delay_ms: Number(e.target.value) })} className="w-24 rounded-lg border border-gray-300 p-1.5" />
-                    <span className="text-gray-500">milissegundos</span>
+                    <span className="text-gray-500">ms</span>
+                  </div>
+
+                  <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
+                    <AbRow title="Curva de sino no atraso" hint="Concentra o tempo de espera no meio (mais humano que aleatório puro)." on={s.antiban.gaussianJitter} onToggle={() => setAb({ gaussianJitter: !s.antiban.gaussianJitter })} />
+
+                    <AbRow title="Digitação proporcional" hint="Respostas maiores levam mais tempo “digitando”, como uma pessoa." on={s.antiban.typingRealism} onToggle={() => setAb({ typingRealism: !s.antiban.typingRealism })}>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                        <span>velocidade</span>
+                        <input type="number" min={15} max={120} step={5} value={s.antiban.typingWpm} onChange={(e) => setAb({ typingWpm: Number(e.target.value) })} className="w-20 rounded-lg border border-gray-300 p-1.5" />
+                        <span>palavras/min · teto</span>
+                        <input type="number" min={1} max={30} step={1} value={Math.round(s.antiban.typingMaxMs / 1000)} onChange={(e) => setAb({ typingMaxMs: Number(e.target.value) * 1000 })} className="w-16 rounded-lg border border-gray-300 p-1.5" />
+                        <span>s</span>
+                      </div>
+                    </AbRow>
+
+                    <AbRow title="Ritmo de madrugada" hint="Entre 0h e 6h responde mais devagar (parece gente dormindo)." on={s.antiban.circadian} onToggle={() => setAb({ circadian: !s.antiban.circadian })}>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                        <span>multiplicar espera por</span>
+                        <input type="number" min={1} max={10} step={0.5} value={s.antiban.nightFactor} onChange={(e) => setAb({ nightFactor: Number(e.target.value) })} className="w-16 rounded-lg border border-gray-300 p-1.5" />
+                        <span>×</span>
+                      </div>
+                    </AbRow>
+
+                    <AbRow title="Pausa anti-rajada" hint="Depois de muitos envios num curto período (ex.: pico de campanha), descansa um tempo. Mensagens espaçadas do dia a dia raramente ativam isso." on={s.antiban.burstEnabled} onToggle={() => setAb({ burstEnabled: !s.antiban.burstEnabled })}>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                        <span>a cada</span>
+                        <input type="number" min={5} max={500} step={5} value={s.antiban.burstLimit} onChange={(e) => setAb({ burstLimit: Number(e.target.value) })} className="w-20 rounded-lg border border-gray-300 p-1.5" />
+                        <span>envios em</span>
+                        <input type="number" min={1} max={120} step={1} value={Math.round(s.antiban.burstWindowMs / 60000)} onChange={(e) => setAb({ burstWindowMs: Number(e.target.value) * 60000 })} className="w-16 rounded-lg border border-gray-300 p-1.5" />
+                        <span>min, descansa de</span>
+                        <input type="number" min={1} max={120} step={1} value={Math.round(s.antiban.restMinMs / 60000)} onChange={(e) => setAb({ restMinMs: Number(e.target.value) * 60000 })} className="w-16 rounded-lg border border-gray-300 p-1.5" />
+                        <span>a</span>
+                        <input type="number" min={1} max={120} step={1} value={Math.round(s.antiban.restMaxMs / 60000)} onChange={(e) => setAb({ restMaxMs: Number(e.target.value) * 60000 })} className="w-16 rounded-lg border border-gray-300 p-1.5" />
+                        <span>min</span>
+                      </div>
+                    </AbRow>
                   </div>
                 </section>
 
@@ -174,6 +214,24 @@ export default function Config() {
         </div>
       </div>
     </main>
+  )
+}
+
+// ── Linha de salvaguarda anti-ban: título + explicação + liga/desliga + extras ──
+function AbRow({ title, hint, on, onToggle, children }: { title: string; hint: string; on: boolean; onToggle: () => void; children?: ReactNode }) {
+  return (
+    <div>
+      <label className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium text-gray-800">{title}</div>
+          <div className="text-xs text-gray-500">{hint}</div>
+        </div>
+        <button onClick={onToggle} className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${on ? 'bg-emerald-500' : 'bg-gray-300'}`}>
+          <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
+        </button>
+      </label>
+      {on && children}
+    </div>
   )
 }
 
