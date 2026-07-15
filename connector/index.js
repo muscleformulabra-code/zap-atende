@@ -118,15 +118,86 @@ function wipeAuth(companyId) {
   }
 }
 
+const sleep = (ms) => new Promise((res) => setTimeout(res, Math.max(0, ms | 0)))
+
+// ── Camada anti-ban: matemática do atraso humanizado ──
+// A config vem de settings.antiban (normalizada no painel). Se faltar, usa
+// fallback seguro aqui também, pra nunca enviar "seco".
+// Aleatório com curva de sino (Box-Muller) → concentra no meio, mais humano.
+function gaussianUnit() {
+  let u = 0, v = 0
+  while (u === 0) u = Math.random()
+  while (v === 0) v = Math.random()
+  let n = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v)
+  n = Math.max(-1, Math.min(1, n / 3)) // ~99,7% dentro de [-1,1]
+  return (n + 1) / 2 // [0,1], concentrado em 0.5
+}
+function pickBaseDelay(min, max, ab) {
+  const r = ab?.gaussianJitter !== false ? gaussianUnit() : Math.random()
+  return Math.floor(min + r * (max - min))
+}
+// Tempo de "digitando" proporcional ao tamanho da resposta (~WPM), com teto.
+function typingMs(text, ab) {
+  if (!ab || ab.typingRealism === false || !text) return 0
+  const words = String(text).trim().split(/\s+/).filter(Boolean).length
+  const wpm = ab.typingWpm > 0 ? ab.typingWpm : 45
+  const t = (words / wpm) * 60000
+  return Math.min(Math.floor(t), ab.typingMaxMs > 0 ? ab.typingMaxMs : 8000)
+}
+// De madrugada (0h–6h de Brasília) responde mais devagar.
+function circadianFactor(ab) {
+  if (!ab || ab.circadian === false) return 1
+  const hh = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', hour12: false, hour: '2-digit' }).format(new Date())) % 24
+  return hh >= 0 && hh < 6 ? (ab.nightFactor > 0 ? ab.nightFactor : 3) : 1
+}
+// Anti-rajada: conta envios por empresa numa janela; ao estourar, descansa.
+const _sendTimes = new Map() // companyId -> number[] (timestamps)
+function burstRestMs(companyId, ab) {
+  if (!ab || ab.burstEnabled === false) return 0
+  const win = ab.burstWindowMs > 0 ? ab.burstWindowMs : 600000
+  const limit = ab.burstLimit > 0 ? ab.burstLimit : 45
+  const now = Date.now()
+  const arr = (_sendTimes.get(companyId) || []).filter((t) => now - t < win)
+  _sendTimes.set(companyId, arr)
+  if (arr.length >= limit) {
+    _sendTimes.set(companyId, []) // zera e descansa
+    const lo = ab.restMinMs > 0 ? ab.restMinMs : 600000
+    const hi = Math.max(ab.restMaxMs > 0 ? ab.restMaxMs : 900000, lo)
+    return Math.floor(lo + Math.random() * (hi - lo))
+  }
+  return 0
+}
+function registerSend(companyId) {
+  const arr = _sendTimes.get(companyId) || []
+  arr.push(Date.now())
+  _sendTimes.set(companyId, arr)
+}
+// Espera mantendo o "digitando" vivo (o presence expira em poucos segundos).
+async function sleepComposing(sock, target, ms) {
+  let left = ms
+  while (left > 0) {
+    try { await sock.sendPresenceUpdate('composing', target) } catch {}
+    const chunk = Math.min(4000, left)
+    await sleep(chunk)
+    left -= chunk
+  }
+}
+
 // Envia uma resposta do bot (texto OU mídia) com "digitando…" e atraso
 // humanizado (anti-ban). Também GRAVA no banco (com company_id).
 async function botSend(sock, target, reply, settings, contactId, companyId) {
   const r = typeof reply === 'string' ? { text: reply } : reply
+  const ab = settings?.antiban || null
   const min = settings?.min_delay_ms ?? 1200
   const max = Math.max(settings?.max_delay_ms ?? 3500, min)
-  const wait = Math.floor(min + Math.random() * (max - min))
-  try { await sock.sendPresenceUpdate('composing', target) } catch {}
-  await new Promise((res) => setTimeout(res, wait))
+  // Descanso anti-rajada (campanha/pico): se muitos envios na janela, pausa longa.
+  const rest = burstRestMs(companyId, ab)
+  if (rest > 0) await sleep(rest)
+  // Atraso "pensando" + digitação proporcional, × fator de madrugada.
+  const previewText = r.text || r.caption || ''
+  const wait = Math.floor((pickBaseDelay(min, max, ab) + typingMs(previewText, ab)) * circadianFactor(ab))
+  await sleepComposing(sock, target, wait)
+  registerSend(companyId)
   let sent
   if (r.image) {
     sent = await sock.sendMessage(target, { image: { url: r.image }, caption: r.caption || '' })
