@@ -63,7 +63,10 @@ export async function POST(req: Request) {
       signal: AbortSignal.timeout(25000), // não trava a conversa se a OpenAI demorar
     })
     const d = await resp.json().catch(() => ({}))
-    if (!resp.ok) return NextResponse.json({ enabled: true, handoff: true, message: '', reason: d?.error?.message || `openai ${resp.status}` })
+    // Falha da OpenAI (cota, rate limit, 5xx) é TRANSITÓRIA: NÃO prende em handoff
+    // (senão a Sofia fica muda pra sempre pra esse contato). Fica quieta só nesta
+    // mensagem e tenta de novo na próxima, quando a OpenAI voltar.
+    if (!resp.ok) return NextResponse.json({ enabled: true, handoff: false, error: true, message: '', reason: d?.error?.message || `openai ${resp.status}` })
 
     const raw = d?.choices?.[0]?.message?.content || '{}'
     let parsed: { message?: string; handoff?: boolean; reason?: string } = {}
@@ -77,6 +80,7 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ enabled: true, handoff, message, reason: parsed.reason || '' })
   } catch (e) {
-    return NextResponse.json({ enabled: true, handoff: true, message: '', reason: 'falha OpenAI: ' + (e as Error).message })
+    // Timeout/erro de rede com a OpenAI: também transitório → não prende em handoff.
+    return NextResponse.json({ enabled: true, handoff: false, error: true, message: '', reason: 'falha OpenAI: ' + (e as Error).message })
   }
 }
