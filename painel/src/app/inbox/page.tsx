@@ -88,12 +88,6 @@ export default function Inbox() {
   const [note, setNote] = useState('')
   const [noteSaved, setNoteSaved] = useState(false)
   const [flowSearch, setFlowSearch] = useState('')
-  const [recording, setRecording] = useState(false)
-  const [recSeconds, setRecSeconds] = useState(0)
-  const mediaRecRef = useRef<MediaRecorder | null>(null)
-  const recChunksRef = useRef<Blob[]>([])
-  const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const recCancelRef = useRef(false)
   const endRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null) // container das mensagens (pra saber se está no fim)
   const justSelected = useRef(true) // ao abrir/trocar conversa, desce pro fim 1x
@@ -279,59 +273,6 @@ export default function Inbox() {
       if (d.warn) alert('⚠️ ' + d.warn)
     }
     loadMsgs(sel.contact_id)
-  }
-
-  // ── Gravar e enviar áudio (nota de voz), igual BotConversa ──
-  async function iniciarGravacao() {
-    if (!sel) return
-    setPlusOpen(false)
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      // Prefere ogg/opus (formato de nota de voz do WhatsApp); cai pra webm.
-      const mime = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
-        ? 'audio/ogg;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : ''
-      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
-      recChunksRef.current = []
-      recCancelRef.current = false
-      rec.ondataavailable = (e) => { if (e.data.size > 0) recChunksRef.current.push(e.data) }
-      rec.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop())
-        if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null }
-        setRecording(false)
-        if (recCancelRef.current || recChunksRef.current.length === 0) return
-        const blob = new Blob(recChunksRef.current, { type: rec.mimeType || 'audio/ogg' })
-        if (blob.size < 800) { alert('Áudio muito curto.'); return }
-        const dataUrl: string = await new Promise((res, rej) => {
-          const rd = new FileReader()
-          rd.onload = () => res(rd.result as string)
-          rd.onerror = rej
-          rd.readAsDataURL(blob)
-        })
-        setMsgs((m) => [...m, { id: 'tmp' + Date.now(), from_me: true, text: '🎤 [áudio]', sent_at: new Date().toISOString() }])
-        const r = await fetch('/api/send-media', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contactId: sel.contact_id, kind: 'audio', dataUrl, fileName: 'audio.ogg' }),
-        })
-        const d = await r.json().catch(() => ({}))
-        if (d.warn) alert('⚠️ ' + d.warn)
-        loadMsgs(sel.contact_id)
-      }
-      mediaRecRef.current = rec
-      rec.start()
-      setRecording(true)
-      setRecSeconds(0)
-      recTimerRef.current = setInterval(() => setRecSeconds((s) => s + 1), 1000)
-    } catch {
-      alert('Não consegui acessar o microfone. Permita o acesso no navegador e tente de novo.')
-    }
-  }
-  function pararGravacao(cancelar: boolean) {
-    recCancelRef.current = cancelar
-    try { mediaRecRef.current?.stop() } catch {}
   }
 
   async function marcarEquipe() {
@@ -605,26 +546,11 @@ export default function Inbox() {
                 </div>
               )}
 
-              {recording ? (
-                <div className="flex items-center gap-3">
-                  <button onClick={() => pararGravacao(true)} title="Cancelar gravação" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-red-200 text-red-500 hover:bg-red-50">✕</button>
-                  <div className="flex flex-1 items-center gap-2 rounded-full bg-red-50 px-4 py-2 text-sm font-medium text-red-600">
-                    <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
-                    Gravando… {String(Math.floor(recSeconds / 60)).padStart(2, '0')}:{String(recSeconds % 60).padStart(2, '0')}
-                  </div>
-                  <button onClick={() => pararGravacao(false)} className="flex items-center gap-1.5 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600">enviar ➤</button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <button onClick={() => { setPlusOpen((v) => !v); setEmojiOpen(false); setFlowOpen(false) }} className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-xl transition ${plusOpen ? 'rotate-45 border-emerald-500 text-emerald-600' : 'border-gray-300 text-gray-500 hover:bg-gray-50'}`} title="Anexar / emoji / fluxo">+</button>
-                  <input ref={inputRef} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Escreva uma mensagem… (ou /atalho)" className="flex-1 rounded-full border border-gray-300 px-4 py-2 text-sm outline-none focus:border-emerald-500" />
-                  {text.trim() ? (
-                    <button onClick={send} disabled={sending} className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600 disabled:opacity-50">enviar</button>
-                  ) : (
-                    <button onClick={iniciarGravacao} title="Gravar áudio" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-gray-300 text-lg text-gray-500 transition hover:border-emerald-500 hover:text-emerald-600">🎤</button>
-                  )}
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                <button onClick={() => { setPlusOpen((v) => !v); setEmojiOpen(false); setFlowOpen(false) }} className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-xl transition ${plusOpen ? 'rotate-45 border-emerald-500 text-emerald-600' : 'border-gray-300 text-gray-500 hover:bg-gray-50'}`} title="Anexar / emoji / fluxo">+</button>
+                <input ref={inputRef} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Escreva uma mensagem… (ou /atalho)" className="flex-1 rounded-full border border-gray-300 px-4 py-2 text-sm outline-none focus:border-emerald-500" />
+                <button onClick={send} disabled={sending || !text.trim()} className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600 disabled:opacity-50">enviar</button>
+              </div>
             </div>
           </>
         )}
