@@ -1,11 +1,18 @@
 import { NextResponse } from 'next/server'
-import { currentMembership } from '@/lib/company'
+import { cookies } from 'next/headers'
+import { currentCompanyId, membershipByEmailCompany } from '@/lib/company'
 import { listMembers, listInvites, createInvite, revokeInvite, updateMember, removeMember, type Member, type Invite } from '@/lib/team'
 import type { Role } from '@/lib/company'
 
 // Só admin (perms=null) ou quem tem a permissão "equipe" gerencia o time.
+// IMPORTANTE: resolve o vínculo na EMPRESA ATIVA (cookie za_company), nunca na
+// mais antiga — senão convite/lista/edição vazam pra empresa errada.
 async function requireAdmin() {
-  const m = await currentMembership()
+  const companyId = await currentCompanyId()
+  if (!companyId) return null
+  const email = (await cookies()).get('za_email')?.value
+  if (!email) return null
+  const m = await membershipByEmailCompany(email, companyId)
   if (!m) return null
   if (m.perms && !m.perms.equipe) return null
   return m

@@ -61,11 +61,19 @@ export async function membershipByUser(userId: string): Promise<Membership | nul
 }
 
 // Empresa (company) do atendente logado, lida do cookie de sessão.
+// Respeita a EMPRESA ATIVA (cookie za_company); só cai na mais antiga se o
+// cookie faltar. Sem isso, ações (equipe, integrações, assistente) vazavam
+// pra empresa errada quando o usuário tinha mais de uma empresa.
 // Retorna null se a pessoa ainda não tem empresa (aguardando convite).
 export async function currentMembership(): Promise<Membership | null> {
   const jar = await cookies()
   const email = jar.get('za_email')?.value
   if (!email) return null
+  const companyId = jar.get('za_company')?.value
+  if (companyId) {
+    const m = await membershipByEmailCompany(email, companyId)
+    if (m) return m
+  }
   return membershipByEmail(email)
 }
 
