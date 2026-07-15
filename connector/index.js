@@ -455,7 +455,10 @@ async function startSession(companyId) {
         const fromMe = !!msg.key?.fromMe
         const jid = (!fromMe && (msg.key.senderPn || msg.key.participantPn)) || rawJid
         const text = extractText(msg)
-        if (!text) continue
+        // Na sincronização de histórico, o aparelho novo não consegue
+        // descriptografar boa parte das mensagens antigas (limitação do WhatsApp
+        // multi-dispositivo). Não salva esse lixo ilegível — só polui o inbox.
+        if (!text || text === '[mensagem não reconhecida]') continue
         const sentAt = msg.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() : new Date().toISOString()
         try {
           const contact = await upsertContact({ jid, phone: jid.split('@')[0], name: nameByJid[rawJid] || msg.pushName || null, companyId })
