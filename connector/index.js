@@ -461,7 +461,9 @@ async function startSession(companyId) {
         if (!text || text === '[mensagem não reconhecida]') continue
         const sentAt = msg.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() : new Date().toISOString()
         try {
-          const contact = await upsertContact({ jid, phone: jid.split('@')[0], name: nameByJid[rawJid] || msg.pushName || null, companyId })
+          // pushName de mensagem ENVIADA (fromMe) é o nome do PRÓPRIO número
+          // (WhatsApp Business), não do contato. Só usa pushName de msg recebida.
+          const contact = await upsertContact({ jid, phone: jid.split('@')[0], name: nameByJid[rawJid] || (!fromMe ? msg.pushName : null) || null, companyId })
           await insertMessage({ contactId: contact.id, jid, fromMe, text, waMessageId: msg.key.id, sentAt, companyId })
           if (!lastByContact[contact.id] || sentAt > lastByContact[contact.id]) lastByContact[contact.id] = sentAt
           saved++
@@ -496,7 +498,9 @@ async function startSession(companyId) {
           if (pn) phone = String(pn).split('@')[0]
         } catch {}
       }
-      const name = msg.pushName || null
+      // pushName de msg ENVIADA (fromMe) é o nome do próprio número (Business),
+      // não do contato. Só usa pushName de mensagem recebida do lead.
+      const name = fromMe ? null : (msg.pushName || null)
       const text = extractText(msg)
       // Mensagem sem conteúdo legível (falha de descriptografia — comum com o novo
       // @lid do WhatsApp e logo após reconexões). NÃO salva nem responde: o
