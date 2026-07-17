@@ -58,10 +58,21 @@ const EMOJIS = ['😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😉', 
 
 type Tab = 'abertas' | 'concluidas' | 'todas' | 'equipe'
 
+// Realça o trecho buscado dentro do texto (estilo WhatsApp).
+function Highlight({ text, q }: { text: string; q: string }) {
+  const term = q.trim()
+  if (!term) return <>{text}</>
+  const esc = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const parts = text.split(new RegExp(`(${esc})`, 'ig'))
+  return <>{parts.map((p, i) => (p.toLowerCase() === term.toLowerCase() ? <mark key={i} className="rounded bg-amber-200 px-0.5 text-gray-900">{p}</mark> : <span key={i}>{p}</span>))}</>
+}
+
 export default function Inbox() {
   const [convs, setConvs] = useState<Conversa[]>([])
   const [tab, setTab] = useState<Tab>('abertas')
   const [search, setSearch] = useState('')
+  const [msgHits, setMsgHits] = useState<(Conversa & { match_snippet: string })[]>([])
+  const [searchingMsgs, setSearchingMsgs] = useState(false)
   const [sel, setSel] = useState<Conversa | null>(null)
   const [msgs, setMsgs] = useState<Msg[]>([])
   const [card, setCard] = useState<Card | null>(null)
@@ -137,6 +148,22 @@ export default function Inbox() {
     const t = setInterval(loadConvs, 2500)
     return () => clearInterval(t)
   }, [loadConvs])
+
+  // Busca por CONTEÚDO de mensagem (estilo WhatsApp), no servidor, com debounce.
+  useEffect(() => {
+    const q = search.trim()
+    if (q.length < 2) { setMsgHits([]); setSearchingMsgs(false); return }
+    setSearchingMsgs(true)
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/search-messages?q=${encodeURIComponent(q)}`)
+        const data = r.ok ? await r.json() : []
+        setMsgHits(Array.isArray(data) ? data : [])
+      } catch { setMsgHits([]) }
+      finally { setSearchingMsgs(false) }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [search])
 
   useEffect(() => {
     if (!sel) return
@@ -317,7 +344,12 @@ export default function Inbox() {
 
   const myName = team.find((a) => (a.email || '').toLowerCase() === (myEmail || '').toLowerCase())?.name || myEmail?.split('@')[0] || 'Eu'
   const allTags = [...new Set(convs.flatMap((c) => c.tags || []))].sort()
-  const filtered = convs
+  const q = search.trim().toLowerCase()
+  const searching = q.length > 0
+  // Trecho de mensagem que casou, por contato (pra mostrar no card, estilo WhatsApp).
+  const snippetByContact = new Map(msgHits.map((h) => [h.contact_id, h.match_snippet]))
+  // Sem busca: lista normal filtrada pela aba/atribuição/etiqueta.
+  const tabFiltered = convs
     .filter((c) => {
       // Aba Equipe = só contatos marcados como equipe. Demais abas = só
       // leads/pacientes (esconde a equipe), com o filtro de status normal.
@@ -327,11 +359,15 @@ export default function Inbox() {
     })
     .filter((c) => (filtAssign === 'meus' ? c.assigned_to === myName : filtAssign === 'nao' ? !c.assigned_to : true))
     .filter((c) => (filtTag ? (c.tags || []).includes(filtTag) : true))
-    .filter((c) => {
-      const q = search.trim().toLowerCase()
-      if (!q) return true
-      return (c.name ?? '').toLowerCase().includes(q) || (c.phone ?? '').includes(q)
-    })
+  // Com busca: global (estilo WhatsApp) — casa por nome/telefone E por conteúdo de
+  // mensagem (do servidor), ignorando o filtro de aba. Nome/telefone primeiro.
+  let filtered = tabFiltered
+  if (searching) {
+    const nameMatches = convs.filter((c) => (c.name ?? '').toLowerCase().includes(q) || (c.phone ?? '').includes(q))
+    const seen = new Set(nameMatches.map((c) => c.contact_id))
+    const msgOnly = msgHits.filter((h) => !seen.has(h.contact_id))
+    filtered = [...nameMatches, ...msgOnly]
+  }
   const abertasCount = convs.filter((c) => !c.is_team && c.status !== 'done').length
   // Só conta como "não lida" quando um profissional mandou a última mensagem.
   const equipeUnread = convs.filter((c) => c.is_team && c.last_from_me === false).length
@@ -391,7 +427,7 @@ export default function Inbox() {
           {/* busca */}
           <div className="relative mt-2.5">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.3-4.3" /></svg>
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar contato…" className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2 pl-9 pr-8 text-sm outline-none focus:border-emerald-400 focus:bg-white" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar conversa ou mensagem…" className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2 pl-9 pr-8 text-sm outline-none focus:border-emerald-400 focus:bg-white" />
             {search && <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-1.5 text-gray-400 hover:text-gray-600">✕</button>}
           </div>
         </div>
@@ -422,12 +458,19 @@ export default function Inbox() {
                       <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-amber-400" title="aguardando resposta" />
                     ) : null}
                   </div>
-                  <div className="truncate text-xs text-gray-500">{c.last_from_me ? 'você: ' : ''}{c.last_text || '—'}</div>
+                  {searching && snippetByContact.has(c.contact_id) ? (
+                    <div className="flex items-center gap-1 truncate text-xs text-gray-500">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-3 w-3 shrink-0 text-gray-400"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
+                      <span className="truncate"><Highlight text={snippetByContact.get(c.contact_id)!} q={search} /></span>
+                    </div>
+                  ) : (
+                    <div className="truncate text-xs text-gray-500">{c.last_from_me ? 'você: ' : ''}{c.last_text || '—'}</div>
+                  )}
                 </div>
               </button>
             )
           })}
-          {filtered.length === 0 && <div className="px-4 py-12 text-center text-sm text-gray-400">{search ? 'Nenhum contato encontrado.' : `Nenhuma conversa ${tab === 'concluidas' ? 'concluída' : tab === 'abertas' ? 'aberta' : ''}.`}</div>}
+          {filtered.length === 0 && <div className="px-4 py-12 text-center text-sm text-gray-400">{searching ? (searchingMsgs ? 'Buscando…' : 'Nada encontrado em contatos nem mensagens.') : `Nenhuma conversa ${tab === 'concluidas' ? 'concluída' : tab === 'abertas' ? 'aberta' : ''}.`}</div>}
         </div>
       </aside>
 

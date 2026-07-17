@@ -73,6 +73,43 @@ export async function getConversations(): Promise<Conversation[]> {
   })
 }
 
+export type MessageMatch = Conversation & { match_snippet: string; match_sent_at: string | null }
+
+// Busca por CONTEÚDO de mensagem (estilo WhatsApp), em TODAS as conversas da
+// empresa (não só as 100 carregadas). Devolve cada conversa que tem alguma
+// mensagem casando com o termo, junto com o trecho que casou.
+export async function searchMessages(q: string): Promise<MessageMatch[]> {
+  const term = (q || '').trim()
+  if (term.length < 2) return []
+  const c = await cid()
+  const enc = encodeURIComponent(term)
+  // mensagens que casam com o texto (mais recentes primeiro)
+  const rows: { contact_id: string; text: string | null; sent_at: string | null }[] = await (
+    await rest(`messages?company_id=eq.${c}&text=ilike.*${enc}*&select=contact_id,text,sent_at&order=sent_at.desc&limit=500`)
+  ).json()
+  // agrupa por contato, mantendo a mensagem mais recente que casou como trecho
+  const byContact = new Map<string, { text: string; sent_at: string | null }>()
+  for (const r of rows) {
+    if (!r.contact_id || !r.text) continue
+    if (!byContact.has(r.contact_id)) byContact.set(r.contact_id, { text: r.text, sent_at: r.sent_at })
+  }
+  const ids = [...byContact.keys()].slice(0, 60)
+  if (!ids.length) return []
+  const inList = ids.join(',')
+  const [convs, sessions] = await Promise.all([
+    (await rest(`conversations?company_id=eq.${c}&contact_id=in.(${inList})&select=*`)).json(),
+    (await rest(`flow_sessions?company_id=eq.${c}&contact_id=in.(${inList})&select=contact_id,status,assigned_to`)).json(),
+  ])
+  const smap = new Map((sessions as { contact_id: string; status: string; assigned_to: string | null }[]).map((s) => [s.contact_id, s]))
+  const out: MessageMatch[] = (convs as (Omit<Conversation, 'status' | 'tags' | 'assigned_to'> & { tags?: string[] })[]).map((cv) => {
+    const s = smap.get(cv.contact_id)
+    const m = byContact.get(cv.contact_id)!
+    return { ...cv, phone: stripDevice(cv.phone), tags: cv.tags ?? [], is_team: (cv as { is_team?: boolean }).is_team ?? false, status: s?.status ?? 'active', assigned_to: s?.assigned_to ?? null, match_snippet: m.text, match_sent_at: m.sent_at }
+  })
+  out.sort((a, b) => (b.match_sent_at || '').localeCompare(a.match_sent_at || ''))
+  return out
+}
+
 export type Message = {
   id: string
   from_me: boolean
