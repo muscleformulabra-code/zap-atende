@@ -159,18 +159,9 @@ export async function deleteMessageRow(messageId: string): Promise<{ jid: string
 
 export async function getContactJid(contactId: string): Promise<string | null> {
   const c = await cid()
-  const res = await rest(`contacts?company_id=eq.${c}&id=eq.${contactId}&select=jid,phone`)
-  const row = (await res.json())[0]
-  if (!row) return null
-  const jid: string | null = row.jid ?? null
-  // Se o jid é @lid (número escondido) mas já temos o número REAL, envia pro
-  // número real (@s.whatsapp.net). O WhatsApp não entrega bem pra @lid — por
-  // isso as mensagens do atendente/fluxo não chegavam.
-  if (jid && jid.endsWith('@lid') && row.phone) {
-    const ph = String(row.phone).split(':')[0].replace(/\D/g, '')
-    if (/^\d{10,15}$/.test(ph)) return `${ph}@s.whatsapp.net`
-  }
-  return jid
+  const res = await rest(`contacts?company_id=eq.${c}&id=eq.${contactId}&select=jid`)
+  const rows = await res.json()
+  return rows[0]?.jid ?? null
 }
 
 // ── Respostas rápidas (mensagens prontas /atalho) ──
