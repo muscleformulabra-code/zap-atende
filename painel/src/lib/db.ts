@@ -159,8 +159,12 @@ export async function deleteMessageRow(messageId: string): Promise<{ jid: string
 
 export async function getContactJid(contactId: string): Promise<string | null> {
   const c = await cid()
-  const res = await rest(`contacts?company_id=eq.${c}&id=eq.${contactId}&select=jid`)
-  const rows = await res.json()
+  // Usa o jid da ÚLTIMA mensagem RECEBIDA do contato — é EXATAMENTE o mesmo que
+  // o robô usa pra responder, e que comprovadamente ENTREGA. Mais confiável que
+  // o jid salvo no contato (que pode estar num formato @lid que não entrega).
+  const msgs = await (await rest(`messages?company_id=eq.${c}&contact_id=eq.${contactId}&from_me=eq.false&select=jid&order=sent_at.desc&limit=1`)).json()
+  if (msgs[0]?.jid) return msgs[0].jid
+  const rows = await (await rest(`contacts?company_id=eq.${c}&id=eq.${contactId}&select=jid`)).json()
   return rows[0]?.jid ?? null
 }
 
