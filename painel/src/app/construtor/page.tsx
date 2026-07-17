@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ReactFlow,
   Background,
@@ -230,6 +230,63 @@ const GROUPS: { title: string; blocks: BlockType[] }[] = [
 type FlowItem = { id: string; name: string; is_active: boolean }
 type AddMenu = { sourceId: string | null; sourceHandle: string | null; x: number; y: number }
 
+// ── "Organizar": enfileira os blocos numa árvore da esquerda pra direita ──
+// Cada bloco vai pra uma coluna = sua distância do início (profundidade). Dentro
+// da coluna, os filhos ficam agrupados na altura dos pais (baricentro), pra as
+// linhas ficarem curtas e visíveis. Só muda a POSIÇÃO — não toca em nada mais.
+function autoLayout(nodes: Node[], edges: Edge[]): Node[] {
+  if (!nodes.length) return nodes
+  const COLW = 380, VGAP = 44
+  const estH = (t?: string) => (t === 'message' ? 210 : t === 'menu' ? 190 : t === 'randomizer' ? 160 : t === 'handoff' ? 120 : 100)
+  const hOf = (n: Node) => n.measured?.height ?? n.height ?? estH(n.type)
+
+  const adj = new Map<string, string[]>()
+  const parents = new Map<string, string[]>()
+  edges.forEach((e) => {
+    if (!adj.has(e.source)) adj.set(e.source, [])
+    adj.get(e.source)!.push(e.target)
+    if (!parents.has(e.target)) parents.set(e.target, [])
+    parents.get(e.target)!.push(e.source)
+  })
+  const targets = new Set(edges.map((e) => e.target))
+  const starts = nodes.filter((n) => !targets.has(n.id)).map((n) => n.id)
+  const roots = starts.length ? starts : [nodes[0].id]
+
+  const depth = new Map<string, number>()
+  const q = [...roots]
+  roots.forEach((id) => depth.set(id, 0))
+  while (q.length) {
+    const id = q.shift()!
+    const d = depth.get(id)!
+    for (const t of adj.get(id) ?? []) if (!depth.has(t)) { depth.set(t, d + 1); q.push(t) }
+  }
+  let maxD = 0
+  depth.forEach((v) => { if (v > maxD) maxD = v })
+  nodes.forEach((n) => { if (!depth.has(n.id)) depth.set(n.id, maxD + 1) }) // órfãos numa coluna extra
+
+  const orderIdx = new Map(nodes.map((n, i) => [n.id, i] as const))
+  const byCol = new Map<number, Node[]>()
+  nodes.forEach((n) => { const c = depth.get(n.id)!; if (!byCol.has(c)) byCol.set(c, []); byCol.get(c)!.push(n) })
+
+  const pos = new Map<string, { x: number; y: number }>()
+  const yMid = new Map<string, number>()
+  const bary = (id: string): number => {
+    const ys = (parents.get(id) ?? []).map((p) => yMid.get(p)).filter((v): v is number => v != null)
+    return ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : orderIdx.get(id)! * 1000
+  }
+  for (const c of [...byCol.keys()].sort((a, b) => a - b)) {
+    const col = byCol.get(c)!
+    col.sort((a, b) => (bary(a.id) - bary(b.id)) || (orderIdx.get(a.id)! - orderIdx.get(b.id)!))
+    let y = 0
+    for (const n of col) {
+      pos.set(n.id, { x: c * COLW, y })
+      yMid.set(n.id, y + hOf(n) / 2)
+      y += hOf(n) + VGAP
+    }
+  }
+  return nodes.map((n) => ({ ...n, position: pos.get(n.id) ?? n.position }))
+}
+
 export default function Construtor() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
@@ -239,6 +296,7 @@ export default function Construtor() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'saving' | 'saved'>('loading')
   const [addMenu, setAddMenu] = useState<AddMenu | null>(null)
+  const rfRef = useRef<{ fitView: (o?: { padding?: number; duration?: number }) => void } | null>(null)
 
   useEffect(() => {
     ;(async () => {
@@ -345,16 +403,25 @@ export default function Construtor() {
     setEdges((eds) => eds.filter((e) => !(e.source === nodeId && e.sourceHandle === handle)))
   }
 
-  async function save() {
+  async function persist(ns: Node[], es: Edge[]) {
     if (!flowId) return
     setStatus('saving')
     const definition: FlowGraph = {
-      nodes: nodes.map((n) => ({ id: n.id, type: n.type as BlockType, position: n.position, data: n.data as NodeData })),
-      edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? null })),
+      nodes: ns.map((n) => ({ id: n.id, type: n.type as BlockType, position: n.position, data: n.data as NodeData })),
+      edges: es.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? null })),
     }
     await fetch(`/api/flows/${flowId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ definition }) })
     setStatus('saved')
     setTimeout(() => setStatus('ready'), 1500)
+  }
+  async function save() { await persist(nodes, edges) }
+
+  // Reorganiza os blocos numa árvore limpa (esquerda→direita) e já salva.
+  function organizar() {
+    const laid = autoLayout(nodes, edges)
+    setNodes(laid)
+    persist(laid, edges)
+    setTimeout(() => rfRef.current?.fitView({ padding: 0.2, duration: 400 }), 80)
   }
 
   const menuOptions = selData?.options ?? []
@@ -372,6 +439,10 @@ export default function Construtor() {
           <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-[11px] font-semibold text-red-600" title="Blocos que o fluxo não alcança — ligue ou remova">⚠ {orphanCount} bloco{orphanCount > 1 ? 's' : ''} solto{orphanCount > 1 ? 's' : ''}</span>
         )}
         <div className="ml-auto flex items-center gap-3">
+          <button onClick={organizar} disabled={status === 'saving' || !flowId || nodes.length === 0} title="Enfileira todos os blocos numa árvore limpa, tudo ligado ponta a ponta (igual BotConversa)" className="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-50">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><rect x="3" y="10" width="6" height="4" rx="1" /><rect x="15" y="4" width="6" height="4" rx="1" /><rect x="15" y="16" width="6" height="4" rx="1" /><path d="M9 12h3M12 6v12M12 6h3M12 18h3" /></svg>
+            Organizar
+          </button>
           <a href="/simulador" target="_blank" className="rounded-lg px-3 py-1.5 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800">▶ testar</a>
           <button onClick={save} disabled={status === 'saving' || !flowId} className="rounded-lg bg-emerald-500 px-5 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-600 disabled:opacity-50">
             {status === 'saving' ? 'salvando…' : status === 'saved' ? '✓ salvo' : 'Salvar'}
@@ -390,6 +461,7 @@ export default function Construtor() {
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
+              onInit={(inst) => { rfRef.current = inst }}
               onNodeClick={(_, node) => setSelectedId(node.id)}
               onPaneClick={() => { setSelectedId(null); setAddMenu(null) }}
               defaultEdgeOptions={{ type: 'smoothstep', style: { stroke: '#94a3b8', strokeWidth: 2 }, markerEnd: { type: MarkerType.ArrowClosed, color: '#94a3b8', width: 16, height: 16 } }}
