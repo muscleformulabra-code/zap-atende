@@ -57,7 +57,7 @@ function transcodeToOggOpus(inputBuffer) {
   })
 }
 
-const { upsertContact, insertMessage, updateAvatar, setSessionDone, applyTagOps, uploadMedia, keyInfo } = require('./supabase')
+const { upsertContact, insertMessage, updateAvatar, setSessionDone, applyTagOps, uploadMedia, keyInfo, listLidContacts, patchContact } = require('./supabase')
 const BAILEYS_VERSION = (() => { try { return require('@whiskeysockets/baileys/package.json').version } catch { return '?' } })()
 const { handleIncoming, getSettings } = require('./bot')
 
@@ -461,9 +461,18 @@ async function startSession(companyId) {
         if (!text || text === '[mensagem não reconhecida]') continue
         const sentAt = msg.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() : new Date().toISOString()
         try {
+          // Resolve o número REAL: se o jid é @lid (número escondido), traduz pelo
+          // mapa LID->PN; senão usa o próprio jid. Sem isso, o "telefone" ficava
+          // sendo o código do @lid (inútil pra ligar/marcar o paciente).
+          let phone = null
+          if (jid.endsWith('@lid')) {
+            try { const pn = await sock.signalRepository?.lidMapping?.getPNForLID?.(jid); if (pn) phone = String(pn).split('@')[0].split(':')[0] } catch {}
+          } else {
+            phone = jid.split('@')[0].split(':')[0]
+          }
           // pushName de mensagem ENVIADA (fromMe) é o nome do PRÓPRIO número
           // (WhatsApp Business), não do contato. Só usa pushName de msg recebida.
-          const contact = await upsertContact({ jid, phone: jid.split('@')[0], name: nameByJid[rawJid] || (!fromMe ? msg.pushName : null) || null, companyId })
+          const contact = await upsertContact({ jid, phone, name: nameByJid[rawJid] || (!fromMe ? msg.pushName : null) || null, companyId })
           await insertMessage({ contactId: contact.id, jid, fromMe, text, waMessageId: msg.key.id, sentAt, companyId })
           if (!lastByContact[contact.id] || sentAt > lastByContact[contact.id]) lastByContact[contact.id] = sentAt
           saved++
@@ -661,6 +670,36 @@ http
       const s = getSession(cid)
       res.writeHead(200, { 'Content-Type': 'application/json' })
       return res.end(JSON.stringify({ company: cid, connected: !!s.sock, whatsapp: s.waConnected, baileys: BAILEYS_VERSION, ffmpeg: ffmpegInfo, keyInfo, sessions: [...sessions.keys()], ...s.diag }))
+    }
+
+    // Reprocessa contatos @lid: traduz pro número REAL com o mapa LID->PN que a
+    // sessão já construiu. /resolve-lids?company=X  (roda em background; o
+    // progresso aparece no /debug em lidResolved/lidTotal)
+    if (req.method === 'GET' && req.url.startsWith('/resolve-lids')) {
+      const cid = companyFromReq(req)
+      const s = getSession(cid)
+      s.diag.lidResolving = true; s.diag.lidResolved = 0; s.diag.lidTotal = 0
+      ;(async () => {
+        const contacts = await listLidContacts(cid)
+        s.diag.lidTotal = contacts.length
+        let resolved = 0
+        for (const c of contacts) {
+          try {
+            const pn = await s.sock?.signalRepository?.lidMapping?.getPNForLID?.(c.jid)
+            if (pn) {
+              const phone = String(pn).split('@')[0].split(':')[0]
+              if (phone && /^\d{10,15}$/.test(phone) && phone !== c.phone) {
+                await patchContact(c.id, { phone })
+                resolved++; s.diag.lidResolved = resolved
+              }
+            }
+          } catch {}
+        }
+        s.diag.lidResolving = false
+        console.log(`🔎 resolve-lids [${cid}]: ${resolved}/${contacts.length} traduzidos`)
+      })().catch(() => { s.diag.lidResolving = false })
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      return res.end(JSON.stringify({ ok: true, msg: 'reprocessando @lid em background', company: cid }))
     }
 
     // Conectar/gerar QR de uma empresa (pareia um número novo). /connect?company=X

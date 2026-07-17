@@ -142,4 +142,21 @@ async function applyTagOps(contactId, tagOps) {
 // Impressão digital da chave (sem expor o segredo) pra diagnóstico.
 const keyInfo = { len: KEY.length, head: KEY.slice(0, 6), tail: KEY.slice(-4) }
 
-module.exports = { upsertContact, insertMessage, updateAvatar, setSessionDone, applyTagOps, uploadMedia, keyInfo }
+// Lista contatos @lid (número real escondido pelo WhatsApp) de uma empresa,
+// pra reprocessar e traduzir pro número verdadeiro.
+async function listLidContacts(companyId) {
+  const cid = companyId || SEED_COMPANY_ID
+  const res = await fetch(`${REST}/contacts?company_id=eq.${cid}&jid=like.*@lid&select=id,jid,phone,name&limit=100000`, { headers: baseHeaders })
+  return res.ok ? res.json() : []
+}
+
+// Atualiza campos de um contato (ex.: telefone real resolvido do LID).
+async function patchContact(id, fields) {
+  await fetch(`${REST}/contacts?id=eq.${id}`, {
+    method: 'PATCH',
+    headers: { ...baseHeaders, Prefer: 'return=minimal' },
+    body: JSON.stringify(fields),
+  })
+}
+
+module.exports = { upsertContact, insertMessage, updateAvatar, setSessionDone, applyTagOps, uploadMedia, keyInfo, listLidContacts, patchContact }
