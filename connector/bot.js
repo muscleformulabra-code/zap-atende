@@ -10,6 +10,12 @@ const H = { apikey: KEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'applic
 // Conta respostas inválidas por contato num menu (na memória; zera no restart).
 const invalidCount = new Map()
 
+// BLINDAGEM ANTI-SPAM: guarda quando cada contato recebeu as BOAS-VINDAS.
+// Se o menu de boas-vindas for disparar de novo pra alguém que acabou de
+// recebê-lo, o bot fica QUIETO. Mata o "menu toda hora pro paciente".
+const lastWelcomeAt = new Map()
+const WELCOME_COOLDOWN_MS = 5 * 60 * 1000 // 5 min
+
 async function getSession(contactId) {
   const res = await fetch(`${REST}/flow_sessions?contact_id=eq.${contactId}&select=*&limit=1`, { headers: H })
   const rows = await res.json()
@@ -173,6 +179,12 @@ async function handleIncoming(contactId, text, opts = {}) {
 
   // Sem sessão OU voltou depois de muito tempo → boas-vindas (menu).
   if (!session || stale) {
+    // BLINDAGEM: se acabou de mandar boas-vindas pra esse contato, NÃO repete.
+    // Evita o "menu toda hora" mesmo se a sessão vier bagunçada por qualquer
+    // motivo. Fica quieto e deixa o atendente/próxima mensagem seguir.
+    const last = lastWelcomeAt.get(contactId) || 0
+    if (Date.now() - last < WELCOME_COOLDOWN_MS) return { replies: [] }
+    lastWelcomeAt.set(contactId, Date.now())
     const result = await callBot(null, text, null, companyId)
     await saveSession(contactId, result.state, companyId)
     return result
