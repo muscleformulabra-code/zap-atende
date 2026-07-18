@@ -39,10 +39,16 @@ export default function Config() {
   const [s, setS] = useState<Settings | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'saving' | 'saved'>('loading')
   const [tab, setTab] = useState<Tab>('conexao')
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
     fetch('/api/settings').then((r) => r.json()).then((data) => { setS(data); setStatus('ready') })
+    // A aba Integrações (chave OpenAI) é só pra dono/admin.
+    fetch('/api/me').then((r) => r.json()).then((d) => { setIsAdmin(!!d?.admin) }).catch(() => setIsAdmin(false))
   }, [])
+
+  // Se um atendente comum cair na aba Integrações (ex.: link antigo), volta pra Conexão.
+  useEffect(() => { if (!isAdmin && tab === 'integracoes') setTab('conexao') }, [isAdmin, tab])
 
   function up(patch: Partial<Settings>) { setS((cur) => (cur ? { ...cur, ...patch } : cur)) }
   function setAb(patch: Partial<Antiban>) { setS((cur) => (cur ? { ...cur, antiban: { ...cur.antiban, ...patch } } : cur)) }
@@ -72,7 +78,7 @@ export default function Config() {
       <div className="flex flex-col gap-6 md:flex-row">
         {/* SUB-MENU */}
         <nav className="w-full shrink-0 space-y-1 md:w-52">
-          {MENU.map((m) => (
+          {MENU.filter((m) => m.k !== 'integracoes' || isAdmin).map((m) => (
             <button key={m.k} onClick={() => setTab(m.k)} className={`block w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition ${tab === m.k ? 'bg-emerald-50 text-emerald-700' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800'}`}>
               {m.label}
             </button>
@@ -94,7 +100,7 @@ export default function Config() {
           ) : tab === 'equipe' ? (
             <div><Head title="Equipe" /><EquipePanel /></div>
           ) : tab === 'integracoes' ? (
-            <div><Head title="Integrações" /><IntegrationsPanel /></div>
+            isAdmin ? <div><Head title="Integrações" /><IntegrationsPanel /></div> : <div className="text-sm text-gray-400">Apenas administradores da conta podem ver a chave de integração.</div>
           ) : !s ? (
             <div className="text-sm text-gray-400">carregando…</div>
           ) : tab === 'robo' ? (
