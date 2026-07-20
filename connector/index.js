@@ -82,7 +82,7 @@ function newDiag() {
 function getSession(companyId) {
   let s = sessions.get(companyId)
   if (!s) {
-    s = { companyId, sock: null, waConnected: false, resetting: false, reconnecting: false, diag: newDiag(), qr: null }
+    s = { companyId, sock: null, waConnected: false, resetting: false, reconnecting: false, stopped: false, diag: newDiag(), qr: null }
     sessions.set(companyId, s)
   }
   return s
@@ -424,6 +424,8 @@ async function startSession(companyId) {
 
     if (connection === 'close') {
       s.waConnected = false
+      // Desconectado de propósito pelo usuário → NÃO reconecta sozinho.
+      if (s.stopped) { console.log(`⏸️  [empresa ${companyId}] desconectado pelo usuário — sem auto-reconexão.`); return }
       const code = lastDisconnect?.error?.output?.statusCode
       const loggedOut = code === DisconnectReason.loggedOut
       if (loggedOut) {
@@ -656,7 +658,7 @@ http
       // Auto-inicia a sessão de empresas ainda sem socket (ex.: empresa nova
       // recém-criada) pra o QR ser gerado sozinho — sem precisar clicar em
       // "Reiniciar conexão". Cooldown de 15s: se falhar, tenta de novo depois.
-      if (!s.sock && !s.resetting && Date.now() - (s.autoStartAt || 0) > 15000) {
+      if (!s.sock && !s.resetting && !s.stopped && Date.now() - (s.autoStartAt || 0) > 15000) {
         s.autoStartAt = Date.now()
         startSession(cid).catch((e) => console.error('auto-start:', e.message))
       }
@@ -705,9 +707,34 @@ http
     // Conectar/gerar QR de uma empresa (pareia um número novo). /connect?company=X
     if (req.method === 'GET' && req.url.startsWith('/connect')) {
       const cid = companyFromReq(req)
+      getSession(cid).stopped = false // reconectar cancela o "desligado de propósito"
       startSession(cid).catch((e) => console.error('connect:', e.message))
       res.writeHead(200, { 'Content-Type': 'application/json' })
       return res.end(JSON.stringify({ ok: true, msg: 'gerando QR', company: cid }))
+    }
+
+    // DESCONECTAR de propósito: desvincula o WhatsApp e FICA desligado (não gera
+    // QR nem reconecta sozinho). /disconnect?company=X&confirm=yes
+    if (req.method === 'GET' && req.url.startsWith('/disconnect')) {
+      const u = new URL(req.url, 'http://x')
+      if (u.searchParams.get('confirm') !== 'yes') {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        return res.end(JSON.stringify({ error: 'use /disconnect?company=<id>&confirm=yes' }))
+      }
+      const cid = u.searchParams.get('company') || SEED_COMPANY_ID
+      const s = getSession(cid)
+      s.stopped = true // impede auto-reconexão (status/close handler respeitam isso)
+      s.resetting = true
+      ;(async () => {
+        try { await s.sock?.logout() } catch {} // desvincula o aparelho do WhatsApp
+        try { s.sock?.ev.removeAllListeners() } catch {}
+        try { s.sock?.end(undefined) } catch {}
+        wipeAuth(cid)
+        s.waConnected = false; s.qr = null; s.sock = null
+        setTimeout(() => { s.resetting = false }, 1000)
+      })().catch(() => { s.resetting = false })
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      return res.end(JSON.stringify({ ok: true, company: cid, msg: 'desconectado' }))
     }
 
     // Reset seguro de UMA empresa: apaga a sessão dela e gera QR novo (não
@@ -721,6 +748,7 @@ http
       const cid = u.searchParams.get('company') || SEED_COMPANY_ID
       const s = getSession(cid)
       s.resetting = true
+      s.stopped = false // reset sempre volta a gerar QR (cancela o "desligado")
       try { s.sock?.ev.removeAllListeners() } catch {}
       try { s.sock?.end(undefined) } catch {}
       wipeAuth(cid)

@@ -321,6 +321,12 @@ function WhatsAppConnection({ companyName }: { companyName?: string }) {
     setTimeout(() => setResetting(false), 42000)
   }
 
+  async function desconectar() {
+    if (!confirm('Desconectar o WhatsApp deste número? O robô PARA de enviar e receber mensagens até você reconectar (ler o QR de novo). As outras empresas continuam normais.')) return
+    setWa(false); setMe(null); setHasQr(false)
+    await fetch('/api/disconnect', { method: 'POST' }).catch(() => {})
+  }
+
   const dot = wa == null ? 'bg-gray-300' : wa ? 'bg-emerald-500' : 'bg-red-400'
   const label = wa == null ? 'Verificando…' : wa ? 'WhatsApp conectado' : 'WhatsApp desconectado'
 
@@ -354,7 +360,8 @@ function WhatsAppConnection({ companyName }: { companyName?: string }) {
         <div className="mt-4 flex items-center gap-3 rounded-xl bg-emerald-50 px-4 py-3">
           <span className="text-xl">✅</span>
           <div className="flex-1 text-sm text-emerald-800">Tudo certo! O robô está conectado e recebendo/enviando mensagens. A automação continua funcionando mesmo com o celular desligado.</div>
-          <button onClick={reiniciar} className="rounded-lg border border-emerald-300 px-3 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-100">Reconectar</button>
+          <button onClick={reiniciar} className="shrink-0 rounded-lg border border-emerald-300 px-3 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-100">Reconectar</button>
+          <button onClick={desconectar} className="shrink-0 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50">Desconectar</button>
         </div>
       )}
 
